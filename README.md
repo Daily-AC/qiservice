@@ -3,8 +3,16 @@
 一个轻量级的 AI 模型聚合网关，基于 Go 语言开发。
 它像一个插座一样，将不同厂商（OpenAI, Anthropic, Gemini, etc.）的 API 标准化，并提供统一的接口管理、流式中转和安全控制。
 
-![UI Preview](https://via.placeholder.com/800x400?text=Service+Station+UI+Preview)
-_(请自行替换为实际运行截图)_
+## 📸 界面预览
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/9ccaf48c-b3c8-49c6-a64f-c948d152087b" width="100%" alt="Service Management" />
+</p>
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/da3d3de6-3aa0-45b7-a69b-474f561e02bc" width="48%" alt="Security Access" />
+  <img src="https://github.com/user-attachments/assets/0e3ab044-dc76-4fd9-aedf-9a136d7a4a51" width="48%" alt="Playground" />
+</p>
 
 ## 🚀 核心特性
 
