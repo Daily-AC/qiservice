@@ -59,7 +59,41 @@ go build -o service-station.exe cmd/server/main.go
 请复制该密码，浏览器访问 `http://localhost:8080` 进行解锁。
 解锁后，建议在 Web 后台将其修改为好记的密码。
 
-## 🔌 接入指南
+## � 服务器部署 (Linux/Ubuntu)
+
+本项目提供了一键安装脚本，适配 Ubuntu 24.04 等 Systemd 发行版。
+
+### 1. 运行安装脚本
+
+将项目上传至服务器，需确保已安装 Go 环境。
+
+```bash
+# 赋予执行权限
+chmod +x install.sh
+
+# 运行安装 (需要 root 权限)
+sudo ./install.sh
+```
+
+脚本会自动编译、移动文件到 `/opt/qiservice` 并注册系统服务。
+
+### 2. 服务管理
+
+```bash
+# 启动服务
+sudo systemctl start qiservice
+
+# 停止服务
+sudo systemctl stop qiservice
+
+# 查看实时日志
+sudo journalctl -u qiservice -f
+
+# 开机自启 (脚本已默认开启)
+sudo systemctl enable qiservice
+```
+
+## �🔌 接入指南
 
 ### 方式 A: OpenAI 兼容客户端 (推荐)
 
