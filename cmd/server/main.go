@@ -27,8 +27,8 @@ func main() {
 
 	api.RegisterRoutes(r)
 
-	log.Println("LLM Service Station starting on :8080...")
-	if err := r.Run(":8080"); err != nil {
+	log.Println("LLM Service Station starting on :1428...")
+	if err := r.Run(":1428"); err != nil {
 		log.Fatal(err)
 	}
 }
