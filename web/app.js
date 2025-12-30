@@ -1,0 +1,334 @@
+let currentConfig = { services: [], client_keys: [] };
+
+// --- Navigation ---
+function switchPage(pageId) {
+    document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+    document.getElementById(pageId).classList.add('active');
+    document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+    event.target.classList.add('active');
+}
+
+
+// --- Authentication ---
+let adminToken = localStorage.getItem('admin_token');
+
+// Only called at startup
+async function checkAuth() {
+    if (adminToken) {
+        // Try to load config
+        try {
+            const res = await fetch('/api/config', {
+                headers: { 'Authorization': 'Bearer ' + adminToken }
+            });
+            if (res.ok) {
+                currentConfig = await res.json();
+                document.getElementById('login_overlay').style.display = 'none';
+                renderServices();
+                renderKeys();
+                updatePlaygroundDropdowns();
+            } else {
+                // Token invalid
+                document.getElementById('login_overlay').style.display = 'flex';
+            }
+        } catch (e) {
+            document.getElementById('login_overlay').style.display = 'flex';
+        }
+    } else {
+        document.getElementById('login_overlay').style.display = 'flex';
+    }
+}
+
+async function doLogin() {
+    const pwd = document.getElementById('admin_password').value;
+    try {
+        const res = await fetch('/api/login', {
+            method: 'POST',
+            body: JSON.stringify({ password: pwd })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            adminToken = data.token;
+            localStorage.setItem('admin_token', adminToken);
+            checkAuth(); // Reload
+        } else {
+            document.getElementById('login_error').style.display = 'block';
+        }
+    } catch (e) {
+        console.error(e);
+        document.getElementById('login_error').textContent = 'Network Error';
+        document.getElementById('login_error').style.display = 'block';
+    }
+}
+
+// --- Initialization ---
+window.onload = checkAuth;
+
+// --- Rendering Services ---
+function renderServices() {
+    const grid = document.getElementById('service_grid');
+    grid.innerHTML = '';
+
+    currentConfig.services.forEach(service => {
+        const card = document.createElement('div');
+        card.className = `service-card`;
+        
+        const typeIcon = getIconForType(service.type);
+        
+        card.innerHTML = `
+            <div class="service-header">
+                <div class="service-icon">${typeIcon}</div>
+                <div>
+                    <div class="service-name">${service.name}</div>
+                    <div class="service-type">${service.type}</div>
+                </div>
+            </div>
+            <div class="service-details">
+                <div class="detail-row">
+                    <span>Base URL</span>
+                    <span title="${service.base_url || 'Default'}" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        ${service.base_url || 'Default'}
+                    </span>
+                </div>
+                <div class="detail-row">
+                    <span>Model ID</span>
+                    <span style="color: var(--primary); font-family: monospace;">${service.name}</span>
+                </div>
+            </div>
+            <div class="service-actions">
+                <button class="btn btn-secondary btn-sm" onclick="editService('${service.id}')">Edit</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteService('${service.id}')">Delete</button>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+function getIconForType(type) {
+    switch(type) {
+        case 'openai': return '🤖';
+        case 'gemini': return '💎';
+        case 'anthropic': return '🧠';
+        default: return '🔌';
+    }
+}
+
+// --- CRUD Services ---
+async function saveAllServices() {
+    try {
+        const res = await fetch('/api/services', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + adminToken
+            },
+            body: JSON.stringify(currentConfig.services)
+        });
+        if (res.ok) {
+            renderServices();
+            updatePlaygroundDropdowns();
+        } else {
+            alert('Failed to save changes');
+        }
+    } catch (e) { console.error(e); }
+}
+
+function deleteService(id) {
+    if (!confirm('Are you sure?')) return;
+    currentConfig.services = currentConfig.services.filter(s => s.id !== id);
+    saveAllServices();
+}
+
+// --- CRUD Keys ---
+async function saveKeys() {
+    try {
+        const res = await fetch('/api/keys', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + adminToken
+            },
+            body: JSON.stringify(currentConfig.client_keys)
+        });
+        if (res.ok) {
+            renderKeys();
+            updatePlaygroundDropdowns();
+        } 
+    } catch (e) { console.error(e); }
+}
+
+function renderKeys() {
+    const container = document.getElementById('keys_list');
+    container.innerHTML = '';
+    
+    if (!currentConfig.client_keys || currentConfig.client_keys.length === 0) {
+        container.innerHTML = '<div style="color: var(--text-muted); font-style: italic;">No keys generated yet.</div>';
+        return;
+    }
+
+    currentConfig.client_keys.forEach((key, index) => {
+        const row = document.createElement('div');
+        row.style.cssText = "display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 0.5rem;";
+        row.innerHTML = `
+            <code style="color: var(--success); font-family: monospace;">${key}</code>
+            <button class="btn btn-danger btn-sm" onclick="deleteKey(${index})">Revoke</button>
+        `;
+        container.appendChild(row);
+    });
+}
+
+function generateKey() {
+    const key = 'sk-station-' + Math.random().toString(36).substr(2, 9) + Math.random().toString(36).substr(2, 9);
+    if (!currentConfig.client_keys) currentConfig.client_keys = [];
+    currentConfig.client_keys.push(key);
+    saveKeys();
+}
+
+function deleteKey(index) {
+    if (!confirm('Revoke this key? Clients using it will immediately lose access.')) return;
+    currentConfig.client_keys.splice(index, 1);
+    saveKeys();
+}
+
+// --- Modal Handling ---
+function openModal(editId = null) {
+    document.getElementById('modal_overlay').classList.add('open');
+    if (editId) {
+        const s = currentConfig.services.find(s => s.id === editId);
+        document.getElementById('modal_title').textContent = 'Edit Service';
+        document.getElementById('service_id').value = s.id;
+        document.getElementById('service_name').value = s.name;
+        document.getElementById('service_type').value = s.type;
+        document.getElementById('base_url').value = s.base_url;
+        document.getElementById('api_key').value = s.api_key;
+        document.getElementById('model_name').value = s.model_name;
+    } else {
+        document.getElementById('modal_title').textContent = 'Add New Service';
+        document.getElementById('service_id').value = '';
+        document.getElementById('service_name').value = '';
+        document.getElementById('service_type').value = 'openai'; 
+        document.getElementById('base_url').value = '';
+        document.getElementById('api_key').value = '';
+        document.getElementById('model_name').value = '';
+    }
+}
+
+function closeModal() {
+    document.getElementById('modal_overlay').classList.remove('open');
+}
+
+function editService(id) { openModal(id); }
+
+function saveService() {
+    const id = document.getElementById('service_id').value;
+    const newService = {
+        id: id || generateUUID(),
+        name: document.getElementById('service_name').value,
+        type: document.getElementById('service_type').value,
+        base_url: document.getElementById('base_url').value,
+        api_key: document.getElementById('api_key').value,
+        model_name: document.getElementById('model_name').value
+    };
+
+    if (id) {
+        const idx = currentConfig.services.findIndex(s => s.id === id);
+        if (idx !== -1) currentConfig.services[idx] = newService;
+    } else {
+        currentConfig.services.push(newService);
+    }
+    
+    saveAllServices();
+    closeModal();
+}
+
+function updatePlaceholders() {
+    const type = document.getElementById('service_type').value;
+    const baseInput = document.getElementById('base_url');
+    if (type === 'openai') baseInput.placeholder = 'https://api.openai.com/v1';
+    if (type === 'gemini') baseInput.placeholder = 'https://generativelanguage.googleapis.com/v1beta/models';
+    if (type === 'anthropic') baseInput.placeholder = 'https://api.anthropic.com/v1';
+}
+
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+// --- Chat Logic ---
+function updatePlaygroundDropdowns() {
+    const modelSelect = document.getElementById('playground_model');
+    modelSelect.innerHTML = '<option value="">Select a Model/Service...</option>';
+    currentConfig.services.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.name;
+        opt.textContent = s.name + (s.model_name ? ` (maps to ${s.model_name})` : '');
+        modelSelect.appendChild(opt);
+    });
+
+    const keySelect = document.getElementById('playground_key');
+    keySelect.innerHTML = '<option value="">Select an API Key...</option>';
+    if (currentConfig.client_keys) {
+        currentConfig.client_keys.forEach(k => {
+            const opt = document.createElement('option');
+            opt.value = k;
+            opt.textContent = k;
+            keySelect.appendChild(opt);
+        });
+    }
+}
+
+function handleEnter(e) {
+    if (e.key === 'Enter') sendMessage();
+}
+
+async function sendMessage() {
+    const input = document.getElementById('chat_input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    const model = document.getElementById('playground_model').value;
+    const key = document.getElementById('playground_key').value;
+
+    if (!model) { alert('Please select a model'); return; }
+    if (!key) { alert('Please select an API Key (Authentication is now required)'); return; }
+
+    addMessage('chat-user', text);
+    input.value = '';
+
+    try {
+        const res = await fetch('/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + key
+            },
+            body: JSON.stringify({
+                model: model,
+                messages: [{role: "user", content: text}]
+            })
+        });
+
+        if (!res.ok) {
+            const err = await res.text();
+            addMessage('chat-assistant', 'Error: ' + err);
+            return;
+        }
+
+        const data = await res.json();
+        const reply = data.choices[0].message.content;
+        addMessage('chat-assistant', reply);
+
+    } catch (e) {
+        addMessage('chat-assistant', 'Network Error: ' + e.message);
+    }
+}
+
+function addMessage(role, text) {
+    const div = document.createElement('div');
+    div.classList.add('chat-bubble', role);
+    div.textContent = text;
+    const container = document.getElementById('chat_messages');
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+}

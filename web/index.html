@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Service Station</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="brand">
+            <span>⚡</span> Service Station
+        </div>
+        <nav class="nav-links">
+            <button class="nav-btn active" onclick="switchPage('services')">All Services</button>
+            <button class="nav-btn" onclick="switchPage('security')">Access Control</button>
+            <button class="nav-btn" onclick="switchPage('playground')">Playground</button>
+        </nav>
+    </header>
+
+    <main>
+        <!-- Services Page -->
+        <div id="services" class="page active">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                <h2>My AI Services</h2>
+                <div style="font-size: 0.9rem; color: var(--text-muted);">
+                    Endpoint: <code style="color: var(--primary); background: rgba(99,102,241,0.1); padding: 0.2rem 0.5rem; border-radius: 4px;">/v1/chat/completions</code>
+                </div>
+            </div>
+            
+            <p style="color: var(--text-muted); margin-bottom: 2rem;">
+                These are the routing rules. When a client requests a specific <b>Model Name</b>, the request is forwarded to the corresponding Service.
+            </p>
+
+            <div class="grid" id="service_grid">
+                <!-- Cards injected by JS -->
+            </div>
+
+            <button class="fab" onclick="openModal()">+</button>
+        </div>
+
+        <!-- Security Page -->
+        <div id="security" class="page">
+             <div style="margin-bottom: 2rem;">
+                <h2>Access Control</h2>
+                <p style="color: var(--text-muted);">Manage Client Keys. Clients must include <code>Authorization: Bearer &lt;KEY&gt;</code> in their requests.</p>
+            </div>
+
+            <div class="card" style="background: var(--surface-color); padding: 1.5rem; border-radius: 1rem; border: 1px solid var(--surface-border);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3>Client Keys</h3>
+                    <button class="btn btn-primary btn-sm" onclick="generateKey()">Generate New Key</button>
+                </div>
+                <div id="keys_list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    <!-- Keys injected here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Playground Page -->
+        <div id="playground" class="page">
+            <div style="margin-bottom: 2rem;">
+                <h2>Test Sandbox</h2>
+                <p style="color: var(--text-muted);">Test your configured services.</p>
+            </div>
+            
+            <div style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center;">
+                <select id="playground_model" class="form-select" style="max-width: 300px;">
+                    <option value="">Select a Model/Service...</option>
+                </select>
+                <select id="playground_key" class="form-select" style="max-width: 300px;">
+                     <option value="">Select an API Key...</option>
+                </select>
+            </div>
+
+            <div class="chat-container">
+                <div class="chat-messages" id="chat_messages">
+                    <div class="chat-bubble chat-assistant">
+                        Hello! Select a model and key above to start testing.
+                    </div>
+                </div>
+                <div class="chat-input-area">
+                    <input type="text" class="form-input" id="chat_input" placeholder="Type your message..." onkeypress="handleEnter(event)">
+                    <button class="btn btn-primary" onclick="sendMessage()">Send</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Login Overlay -->
+    <div class="modal-overlay" id="login_overlay" style="display: flex; background: rgba(0,0,0,0.9); z-index: 9999;">
+        <div class="modal" style="max-width: 400px; text-align: center;">
+            <div style="font-size: 3rem; margin-bottom: 1rem;">🔒</div>
+            <h2 style="margin-bottom: 1rem;">Admin Access</h2>
+            <p style="color: var(--text-muted); margin-bottom: 2rem;">Please enter the administrator password to access the console.</p>
+            
+            <div class="form-group">
+                <input type="password" class="form-input" id="admin_password" placeholder="Password" onkeypress="if(event.key==='Enter') doLogin()">
+            </div>
+
+            <button class="btn btn-primary" onclick="doLogin()" style="width: 100%;">Unlock</button>
+            <div id="login_error" style="color: #ef4444; margin-top: 1rem; display: none;">Invalid password</div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Modal -->
+    <div class="modal-overlay" id="modal_overlay">
+        <div class="modal">
+            <h2 style="margin-bottom: 1.5rem;" id="modal_title">Add New Service</h2>
+            <input type="hidden" id="service_id">
+            
+            <div class="form-group">
+                <label class="form-label">Service Name (Model Name)</label>
+                <input type="text" class="form-input" id="service_name" placeholder="e.g. gpt-4-turbo">
+                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">Clients will use this name in the "model" field to target this service.</div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Provider Type</label>
+                <select class="form-select" id="service_type" onchange="updatePlaceholders()">
+                    <option value="openai">OpenAI</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="anthropic">Anthropic Claude</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Base URL</label>
+                <input type="text" class="form-input" id="base_url" placeholder="https://api.openai.com/v1">
+                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">Leave empty for default official URL.</div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">API Key</label>
+                <input type="password" class="form-input" id="api_key" placeholder="sk-...">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Model Name Override (Optional)</label>
+                <input type="text" class="form-input" id="model_name" placeholder="e.g. gpt-4o">
+                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">If set, the backend will send THIS model name to the provider instead of the service name.</div>
+            </div>
+
+            <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveService()">Save Service</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
