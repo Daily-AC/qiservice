@@ -56,7 +56,7 @@ go build -o service-station.exe cmd/server/main.go
 ⚠️  ADMIN PASSWORD NOT SET. GENERATED: xxxxxxxx-xxxx-xxxx...
 ```
 
-请复制该密码，浏览器访问 `http://localhost:8080` 进行解锁。
+请复制该密码，浏览器访问 `http://localhost:1428` 进行解锁。
 解锁后，建议在 Web 后台将其修改为好记的密码。
 
 ## � 服务器部署 (Linux/Ubuntu)
@@ -99,7 +99,7 @@ sudo systemctl enable qiservice
 
 适用于 Cherry Studio, NextChat, LangChain 等。
 
-- **Base URL**: `http://localhost:8080/v1`
+- **Base URL**: `http://localhost:1428/v1`
 - **API Key**: (在 "Access Control" 页面生成的 Key)
 - **Model**: (你在 "My AI Services" 页面配置的服务名)
 
@@ -107,7 +107,7 @@ sudo systemctl enable qiservice
 
 适用于 Claude Code, Cursor 等原生支持 Claude 的工具。
 
-- **Base URL**: `http://localhost:8080/v1` (部分工具可能需要配置为 `/v1/messages`)
+- **Base URL**: `http://localhost:1428/v1` (部分工具可能需要配置为 `/v1/messages`)
 - **API Key**: 填 `x-api-key` 或者 Bearer Token 均可。
 
 ## 📂 项目结构
