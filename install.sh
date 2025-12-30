@@ -39,6 +39,8 @@ go build -o "$INSTALL_DIR/$APP_NAME" cmd/server/main.go
 
 # 4. Copy Assets
 echo "📦 Copying web assets..."
+# Clean up old web assets to avoid stale files
+rm -rf "$INSTALL_DIR/web"
 cp -r web "$INSTALL_DIR/"
 
 # 5. Handle Config (Don't overwrite existing config)
@@ -84,7 +86,7 @@ systemctl start $APP_NAME
 
 echo "✅ Installation Complete!"
 echo "------------------------------------------------"
-echo "🌐 Web Interface: http://YOUR_SERVER_IP:1428"
+echo "🌐 Web Interface: http://38.147.185.103:1428"
 echo "------------------------------------------------"
 echo "Management Commands:"
 echo "  Start:    sudo systemctl start $APP_NAME"
