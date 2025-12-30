@@ -86,7 +86,7 @@ systemctl start $APP_NAME
 
 echo "✅ Installation Complete!"
 echo "------------------------------------------------"
-echo "🌐 Web Interface: http://38.147.185.103:1428"
+echo "🌐 Web Interface: http://YOUR_SERVER_IP:11451"
 echo "------------------------------------------------"
 echo "Management Commands:"
 echo "  Start:    sudo systemctl start $APP_NAME"
