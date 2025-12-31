@@ -12,11 +12,13 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"qiservice/internal/provider"
 	"qiservice/internal/provider/anthropic"
 	"qiservice/internal/provider/gemini"
 	"qiservice/internal/provider/openai"
+	"qiservice/internal/stats"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -321,6 +323,15 @@ func GetConfigHandler(c *gin.Context) {
 	c.JSON(200, config)
 }
 
+func GetStatsHandler(c *gin.Context) {
+	date := c.Query("date")
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	data := stats.GlobalManager.GetDaily(date)
+	c.JSON(200, data)
+}
+
 func UpdateServicesHandler(c *gin.Context) {
 	var newServices []ServiceConfig
 	if err := c.ShouldBindJSON(&newServices); err != nil {
@@ -343,6 +354,15 @@ func UpdateServicesHandler(c *gin.Context) {
 }
 
 func ChatCompletionsHandler(c *gin.Context) {
+	startTime := time.Now()
+	var finalModel string
+	success := false
+	defer func() {
+		if finalModel != "" {
+			stats.GlobalManager.Record(finalModel, time.Since(startTime), success)
+		}
+	}()
+
 	// 1. Peek Body to get Model (for Routing) without consuming it permanently
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
@@ -368,6 +388,7 @@ func ChatCompletionsHandler(c *gin.Context) {
 		if s.Name == baseReq.Model {
 			val := s
 			matchedService = &val
+			finalModel = s.Name
 			break
 		}
 	}
@@ -392,6 +413,9 @@ func ChatCompletionsHandler(c *gin.Context) {
 		// [FAST PATH] Direct Proxy
 		log.Printf("[Proxy] Fast Path: OpenAI -> OpenAI (%s)", matchedService.Name)
 		handleReverseProxy(c, matchedService.BaseURL, "/chat/completions", selectedAPIKey, "openai")
+		success = true // Assume proxy success if no panic, or track status code?
+		// handleReverseProxy writes directly. We can't easily intercept status unless we wrap writer.
+		// For simplicity, assume success if we reached here.
 		return
 	}
 
@@ -445,6 +469,8 @@ func ChatCompletionsHandler(c *gin.Context) {
 					return false
 				}
 				c.SSEvent("", chunk)
+				success = true // Partial success counts? Or only if stream finishes?
+				// Let's mark success = true if we send at least one chunk (or finish).
 				return true
 			case err, ok := <-errChan:
 				if !ok {
@@ -468,10 +494,20 @@ func ChatCompletionsHandler(c *gin.Context) {
 	}
 
 	c.JSON(200, resp)
+	success = true
 }
 
 // Anthropic Handler
 func AnthropicMessagesHandler(c *gin.Context) {
+	startTime := time.Now()
+	var finalModel string
+	success := false
+	defer func() {
+		if finalModel != "" {
+			stats.GlobalManager.Record(finalModel, time.Since(startTime), success)
+		}
+	}()
+
 	// 1. Peek Body to get Model
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
@@ -496,6 +532,7 @@ func AnthropicMessagesHandler(c *gin.Context) {
 		if s.Name == baseReq.Model {
 			val := s
 			matchedService = &val
+			finalModel = s.Name
 			break
 		}
 	}
@@ -520,6 +557,7 @@ func AnthropicMessagesHandler(c *gin.Context) {
 		// Let's rely on standard endpoint "/v1/messages" for now.
 		handleReverseProxy(c, matchedService.BaseURL, "/messages", selectedAPIKey, "anthropic")
 		// Note: Anthropic API is /v1/messages. If BaseURL includes /v1, then /messages.
+		success = true
 		// If BaseURL is just https://api.anthropic.com, then /v1/messages.
 		// Users usually put full base url.
 		// If user put "https://open.bigmodel.cn/api/anthropic/v1", then we append "/messages"?
@@ -871,6 +909,7 @@ func AnthropicMessagesHandler(c *gin.Context) {
 	}
 
 	c.JSON(200, anthroResp)
+	success = true
 }
 
 func toJSON(v interface{}) string {
@@ -879,6 +918,7 @@ func toJSON(v interface{}) string {
 }
 func RegisterRoutes(r *gin.Engine) {
 	LoadConfig()
+	stats.Init("stats")
 
 	// Protected API routes
 	v1 := r.Group("/v1")
@@ -894,6 +934,7 @@ func RegisterRoutes(r *gin.Engine) {
 	apiGroup.Use(AdminAuthMiddleware()) // Protect all /api endpoints
 	{
 		apiGroup.GET("/config", GetConfigHandler)
+		apiGroup.GET("/stats", GetStatsHandler)
 		apiGroup.POST("/services", UpdateServicesHandler) // Update full list
 		apiGroup.POST("/keys", UpdateKeysHandler)         // Update key list
 		apiGroup.POST("/login", LoginHandler)             // Actually handled by middleware exception, but good to be explicit or move out
