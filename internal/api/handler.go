@@ -434,11 +434,10 @@ func ChatCompletionsHandler(c *gin.Context) {
 	// 2. Find Service
 	configMutex.RLock()
 	var matchedService *ServiceConfig
-	for _, s := range config.Services {
-		if s.Name == baseReq.Model {
-			val := s
-			matchedService = &val
-			finalModel = s.Name
+	for i := range config.Services {
+		if config.Services[i].Name == baseReq.Model {
+			matchedService = &config.Services[i]
+			finalModel = matchedService.Name
 			break
 		}
 	}
@@ -585,11 +584,10 @@ func AnthropicMessagesHandler(c *gin.Context) {
 	// 2. Find Service
 	configMutex.RLock()
 	var matchedService *ServiceConfig
-	for _, s := range config.Services {
-		if s.Name == baseReq.Model {
-			val := s
-			matchedService = &val
-			finalModel = s.Name
+	for i := range config.Services {
+		if config.Services[i].Name == baseReq.Model {
+			matchedService = &config.Services[i]
+			finalModel = matchedService.Name
 			break
 		}
 	}
