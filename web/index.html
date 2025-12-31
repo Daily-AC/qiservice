@@ -131,8 +131,15 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">API Key</label>
-                <input type="password" class="form-input" id="api_key" placeholder="sk-...">
+                <label class="form-label">API KEYS (Pool)</label>
+                <div id="service_keys_list" style="margin-bottom: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; max-height: 150px; overflow-y: auto;">
+                    <!-- Keys injected here -->
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="password" class="form-input" id="new_api_key_input" placeholder="sk-..." onkeypress="if(event.key==='Enter') addServiceKey()">
+                    <button class="btn btn-secondary" onclick="addServiceKey()">Add</button>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">Keys are rotated (Round-Robin) for load balancing.</div>
             </div>
 
             <div class="form-group">
@@ -148,6 +155,6 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=2.1"></script>
 </body>
 </html>
