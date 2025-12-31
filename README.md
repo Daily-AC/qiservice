@@ -128,6 +128,11 @@ sudo systemctl enable qiservice
 - 本项目旨在作为本地或私有网络的中转网关，请勿在未加固的情况下直接暴露在公网。
 - `config.json` 包含敏感 API Key，**已被 .gitignore 忽略**，请勿提交。
 
-## 📄 License
+## � API 文档
+
+详细的接口参数说明、OpenAI/Anthropic 协议互转细节以及统计接口说明，请查阅：
+👉 [**API Reference (接口文档)**](API_REFERENCE.md)
+
+## �📄 License
 
 MIT
