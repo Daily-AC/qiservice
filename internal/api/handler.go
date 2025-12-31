@@ -393,6 +393,21 @@ func AnthropicMessagesHandler(c *gin.Context) {
 		Stream:   anthroReq.Stream,
 	}
 
+	// 1.5 Map Tools
+	if len(anthroReq.Tools) > 0 {
+		internalReq.Tools = []provider.Tool{}
+		for _, t := range anthroReq.Tools {
+			internalReq.Tools = append(internalReq.Tools, provider.Tool{
+				Type: "function",
+				Function: provider.ToolFunction{
+					Name:        t.Name,
+					Description: t.Description,
+					Parameters:  t.InputSchema,
+				},
+			})
+		}
+	}
+
 	// 2. Find Service
 	configMutex.RLock()
 	var matchedService *ServiceConfig
@@ -462,8 +477,13 @@ func AnthropicMessagesHandler(c *gin.Context) {
 		}) + "\n\n")
 		c.Writer.Flush()
 
+		// Keep track of current block index
+		blockIndex := 0
+		inToolUse := false
+
+		// Initial text block
 		c.Writer.WriteString("event: content_block_start\n")
-		c.Writer.WriteString("data: " + toJSON(gin.H{"type": "content_block_start", "index": 0, "content_block": gin.H{"type": "text", "text": ""}}) + "\n\n")
+		c.Writer.WriteString("data: " + toJSON(gin.H{"type": "content_block_start", "index": blockIndex, "content_block": gin.H{"type": "text", "text": ""}}) + "\n\n")
 		c.Writer.Flush()
 
 		c.Stream(func(w io.Writer) bool {
@@ -471,7 +491,7 @@ func AnthropicMessagesHandler(c *gin.Context) {
 			case chunk, ok := <-outputChan:
 				if !ok {
 					c.Writer.WriteString("event: content_block_stop\n")
-					c.Writer.WriteString("data: " + toJSON(gin.H{"type": "content_block_stop", "index": 0}) + "\n\n")
+					c.Writer.WriteString("data: " + toJSON(gin.H{"type": "content_block_stop", "index": blockIndex}) + "\n\n")
 
 					c.Writer.WriteString("event: message_delta\n")
 					c.Writer.WriteString("data: " + toJSON(gin.H{"type": "message_delta", "delta": gin.H{"stop_reason": "end_turn", "stop_sequence": nil}, "usage": gin.H{"output_tokens": 0}}) + "\n\n")
@@ -481,20 +501,76 @@ func AnthropicMessagesHandler(c *gin.Context) {
 					return false
 				}
 
-				content := ""
 				if len(chunk.Choices) > 0 {
-					content = chunk.Choices[0].Delta.Content
-				}
+					delta := chunk.Choices[0].Delta
 
-				if content != "" {
-					// log.Printf("[DEBUG] Sending Chunk: %s", content)
-					c.Writer.WriteString("event: content_block_delta\n")
-					c.Writer.WriteString("data: " + toJSON(gin.H{
-						"type":  "content_block_delta",
-						"index": 0,
-						"delta": gin.H{"type": "text_delta", "text": content},
-					}) + "\n\n")
-					c.Writer.Flush()
+					// Case A: Text Content
+					if delta.Content != "" {
+						if inToolUse {
+							// Close previous tool block if we switch back to text (rare in streaming but possible)
+							c.Writer.WriteString("event: content_block_stop\n")
+							c.Writer.WriteString("data: " + toJSON(gin.H{"type": "content_block_stop", "index": blockIndex}) + "\n\n")
+							blockIndex++
+							inToolUse = false
+
+							// Start new text block
+							c.Writer.WriteString("event: content_block_start\n")
+							c.Writer.WriteString("data: " + toJSON(gin.H{"type": "content_block_start", "index": blockIndex, "content_block": gin.H{"type": "text", "text": ""}}) + "\n\n")
+							c.Writer.Flush()
+						}
+
+						c.Writer.WriteString("event: content_block_delta\n")
+						c.Writer.WriteString("data: " + toJSON(gin.H{
+							"type":  "content_block_delta",
+							"index": blockIndex,
+							"delta": gin.H{"type": "text_delta", "text": delta.Content},
+						}) + "\n\n")
+						c.Writer.Flush()
+					}
+
+					// Case B: Tool Calls
+					if len(delta.ToolCalls) > 0 {
+						if !inToolUse || delta.ToolCalls[0].ID != "" {
+							if !inToolUse && blockIndex == 0 {
+								// Close the initial empty text block if we go straight to tools
+								// (Optional optimization: some clients might expect at least one text block)
+								c.Writer.WriteString("event: content_block_stop\n")
+								c.Writer.WriteString("data: " + toJSON(gin.H{"type": "content_block_stop", "index": blockIndex}) + "\n\n")
+								blockIndex++
+							} else if inToolUse && delta.ToolCalls[0].ID != "" {
+								// Close previous tool block
+								c.Writer.WriteString("event: content_block_stop\n")
+								c.Writer.WriteString("data: " + toJSON(gin.H{"type": "content_block_stop", "index": blockIndex}) + "\n\n")
+								blockIndex++
+							}
+
+							inToolUse = true
+							// Start Tool Block
+							toolCall := delta.ToolCalls[0]
+							c.Writer.WriteString("event: content_block_start\n")
+							c.Writer.WriteString("data: " + toJSON(gin.H{
+								"type":  "content_block_start",
+								"index": blockIndex,
+								"content_block": gin.H{
+									"type":  "tool_use",
+									"id":    toolCall.ID,
+									"name":  toolCall.Function.Name,
+									"input": gin.H{}, // Start empty, fill via delta
+								},
+							}) + "\n\n")
+							c.Writer.Flush()
+						}
+
+						if delta.ToolCalls[0].Function.Arguments != "" {
+							c.Writer.WriteString("event: content_block_delta\n")
+							c.Writer.WriteString("data: " + toJSON(gin.H{
+								"type":  "content_block_delta",
+								"index": blockIndex,
+								"delta": gin.H{"type": "input_json_delta", "partial_json": delta.ToolCalls[0].Function.Arguments},
+							}) + "\n\n")
+							c.Writer.Flush()
+						}
+					}
 				}
 				return true
 			case err, ok := <-errChan:
