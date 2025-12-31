@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"qiservice/internal/provider"
 	"qiservice/internal/provider/anthropic"
@@ -35,7 +36,19 @@ type ServiceConfig struct {
 	Type      ServiceType `json:"type"`
 	BaseURL   string      `json:"base_url"`
 	APIKey    string      `json:"api_key"`
+	APIKeys   []string    `json:"api_keys"`   // New Pool
 	ModelName string      `json:"model_name"` // Optional Override
+
+	keyCounter uint64 // Round-Robin Counter (Internal)
+}
+
+func (s *ServiceConfig) GetAPIKey() string {
+	if len(s.APIKeys) > 0 {
+		// Round Robin
+		idx := atomic.AddUint64(&s.keyCounter, 1) - 1
+		return s.APIKeys[idx%uint64(len(s.APIKeys))]
+	}
+	return s.APIKey
 }
 
 type Config struct {
@@ -63,6 +76,13 @@ func LoadConfig() {
 	if config.Services == nil {
 		config.Services = []ServiceConfig{}
 	}
+	// Migrate APIKey -> APIKeys
+	for i := range config.Services {
+		if len(config.Services[i].APIKeys) == 0 && config.Services[i].APIKey != "" {
+			config.Services[i].APIKeys = []string{config.Services[i].APIKey}
+		}
+	}
+
 	if config.ClientKeys == nil {
 		config.ClientKeys = []string{}
 	}
@@ -215,7 +235,7 @@ func ModelsHandler(c *gin.Context) {
 
 // v2.0 Smart Proxy Implementation
 
-func getServiceProtocol(serviceType string) string {
+func getServiceProtocol(serviceType ServiceType) string {
 	switch serviceType {
 	case ServiceTypeOpenAI, "deepseek", "glm", "yi", "moonshot":
 		return "openai"
@@ -323,18 +343,29 @@ func UpdateServicesHandler(c *gin.Context) {
 }
 
 func ChatCompletionsHandler(c *gin.Context) {
-	var req provider.ChatCompletionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+	// 1. Peek Body to get Model (for Routing) without consuming it permanently
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Failed to read request body"})
+		return
+	}
+	// Restore body for subsequent reads (Binding or Proxying)
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	// Quick extract model
+	var baseReq struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(bodyBytes, &baseReq); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid JSON"})
 		return
 	}
 
+	// 2. Find Service
 	configMutex.RLock()
 	var matchedService *ServiceConfig
-
-	// Routing Logic: Find service by Name == req.Model
 	for _, s := range config.Services {
-		if s.Name == req.Model {
+		if s.Name == baseReq.Model {
 			val := s
 			matchedService = &val
 			break
@@ -345,11 +376,29 @@ func ChatCompletionsHandler(c *gin.Context) {
 	if matchedService == nil {
 		c.JSON(404, gin.H{
 			"error": gin.H{
-				"message": "The model '" + req.Model + "' does not exist. Please check your service configuration.",
+				"message": "The model '" + baseReq.Model + "' does not exist. Please check your service configuration.",
 				"type":    "invalid_request_error",
 				"code":    "model_not_found",
 			},
 		})
+		return
+	}
+
+	// 3. Smart Proxy Decision
+	upstreamProtocol := getServiceProtocol(matchedService.Type)
+	selectedAPIKey := matchedService.GetAPIKey()
+
+	if upstreamProtocol == "openai" {
+		// [FAST PATH] Direct Proxy
+		log.Printf("[Proxy] Fast Path: OpenAI -> OpenAI (%s)", matchedService.Name)
+		handleReverseProxy(c, matchedService.BaseURL, "/chat/completions", selectedAPIKey, "openai")
+		return
+	}
+
+	// [SLOW PATH] Logic
+	var req provider.ChatCompletionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -358,18 +407,15 @@ func ChatCompletionsHandler(c *gin.Context) {
 		req.Model = matchedService.ModelName
 	}
 
-	log.Printf("[Debug] Routing (OpenAI Endpoint) to Service: %s, Type: %s", matchedService.Name, matchedService.Type)
+	log.Printf("[Debug] Routing (Adapter) to Service: %s, Type: %s", matchedService.Name, matchedService.Type)
 
 	var p provider.Provider
-
 	switch matchedService.Type {
 	case ServiceTypeGemini:
 		p = gemini.NewGeminiProvider(matchedService.BaseURL)
 	case ServiceTypeAnthropic:
-		log.Printf("[Debug] Using Anthropic Provider (via OpenAI Endpoint)")
 		p = anthropic.NewAnthropicProvider(matchedService.BaseURL)
-	default: // OpenAI
-		log.Printf("[Debug] Using OpenAI Provider (via OpenAI Endpoint)")
+	default:
 		p = openai.NewOpenAIProvider(matchedService.BaseURL)
 	}
 
@@ -386,7 +432,7 @@ func ChatCompletionsHandler(c *gin.Context) {
 		go func() {
 			defer close(outputChan)
 			defer close(errChan)
-			if err := p.StreamChatCompletion(c.Request.Context(), req, matchedService.APIKey, outputChan); err != nil {
+			if err := p.StreamChatCompletion(c.Request.Context(), req, selectedAPIKey, outputChan); err != nil {
 				errChan <- err
 			}
 		}()
@@ -395,7 +441,6 @@ func ChatCompletionsHandler(c *gin.Context) {
 			select {
 			case chunk, ok := <-outputChan:
 				if !ok {
-					// Stream finished
 					c.SSEvent("", "[DONE]")
 					return false
 				}
@@ -404,7 +449,7 @@ func ChatCompletionsHandler(c *gin.Context) {
 			case err, ok := <-errChan:
 				if !ok {
 					errChan = nil
-					return true // Continue stream
+					return true
 				}
 				log.Printf("Stream error: %v", err)
 				return false
@@ -415,9 +460,8 @@ func ChatCompletionsHandler(c *gin.Context) {
 		return
 	}
 
-	resp, err := p.ChatCompletion(c.Request.Context(), req, matchedService.APIKey)
+	resp, err := p.ChatCompletion(c.Request.Context(), req, selectedAPIKey)
 	if err != nil {
-		// Log specific error
 		log.Printf("Error processing chat completion: %v", err)
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -465,6 +509,7 @@ func AnthropicMessagesHandler(c *gin.Context) {
 	// 3. Smart Proxy Decision
 	// Ingress is Anthropic Protocol
 	upstreamProtocol := getServiceProtocol(matchedService.Type)
+	selectedAPIKey := matchedService.GetAPIKey()
 
 	if upstreamProtocol == "anthropic" {
 		// [FAST PATH] Direct Proxy
@@ -473,7 +518,7 @@ func AnthropicMessagesHandler(c *gin.Context) {
 		// Usually internal config BaseURL is "https://api.anthropic.com". Client requests "/v1/messages".
 		// ReverseProxy will join them. But handleReverseProxy overrides path.
 		// Let's rely on standard endpoint "/v1/messages" for now.
-		handleReverseProxy(c, matchedService.BaseURL, "/messages", matchedService.APIKey, "anthropic")
+		handleReverseProxy(c, matchedService.BaseURL, "/messages", selectedAPIKey, "anthropic")
 		// Note: Anthropic API is /v1/messages. If BaseURL includes /v1, then /messages.
 		// If BaseURL is just https://api.anthropic.com, then /v1/messages.
 		// Users usually put full base url.
@@ -640,22 +685,8 @@ func AnthropicMessagesHandler(c *gin.Context) {
 		}
 	}
 
-	// 2. Find Service
-	configMutex.RLock()
-	var matchedService *ServiceConfig
-	for _, s := range config.Services {
-		if s.Name == internalReq.Model {
-			val := s
-			matchedService = &val
-			break
-		}
-	}
-	configMutex.RUnlock()
-
-	if matchedService == nil {
-		c.JSON(404, gin.H{"error": gin.H{"type": "not_found_error", "message": "Model not found"}})
-		return
-	}
+	// 2. Find Service (Already done above)
+	// matchedService is available from the Fast Path check
 
 	log.Printf("[Debug] Routing to Service: %s, Type: %s, URL: %s", matchedService.Name, matchedService.Type, matchedService.BaseURL)
 
@@ -688,7 +719,7 @@ func AnthropicMessagesHandler(c *gin.Context) {
 		go func() {
 			defer close(outputChan)
 			defer close(errChan)
-			if err := p.StreamChatCompletion(c.Request.Context(), internalReq, matchedService.APIKey, outputChan); err != nil {
+			if err := p.StreamChatCompletion(c.Request.Context(), internalReq, selectedAPIKey, outputChan); err != nil {
 				errChan <- err
 			}
 		}()
@@ -821,7 +852,7 @@ func AnthropicMessagesHandler(c *gin.Context) {
 	}
 
 	// 4. Handle Non-Streaming
-	resp, err := p.ChatCompletion(c.Request.Context(), internalReq, matchedService.APIKey)
+	resp, err := p.ChatCompletion(c.Request.Context(), internalReq, selectedAPIKey)
 	if err != nil {
 		c.JSON(500, gin.H{"error": gin.H{"type": "api_error", "message": err.Error()}})
 		return
