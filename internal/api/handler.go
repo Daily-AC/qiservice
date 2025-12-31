@@ -376,15 +376,120 @@ func AnthropicMessagesHandler(c *gin.Context) {
 
 	systemContent := anthropic.ExtractText(anthroReq.System)
 	if systemContent != "" {
-		// log.Printf("[Debug] Incoming System Prompt: %s", systemContent) // Debug log
 		messages = append(messages, provider.Message{Role: "system", Content: systemContent})
 	}
 
 	for _, m := range anthroReq.Messages {
-		messages = append(messages, provider.Message{
-			Role:    m.Role,
-			Content: anthropic.ExtractText(m.Content),
-		})
+		// Handle Content List (Anthropic supports mixed content: text, tool_use, tool_result)
+		var contentList []map[string]interface{}
+		if list, ok := m.Content.([]interface{}); ok {
+			for _, item := range list {
+				if v, ok := item.(map[string]interface{}); ok {
+					contentList = append(contentList, v)
+				}
+			}
+		} else if s, ok := m.Content.(string); ok {
+			// Simple string content
+			messages = append(messages, provider.Message{Role: m.Role, Content: s})
+			continue
+		}
+
+		if len(contentList) == 0 {
+			// Fallback (empty or unexpected format)
+			messages = append(messages, provider.Message{Role: m.Role, Content: ""})
+			continue
+		}
+
+		// Process blocks
+		var textParts []string
+		var toolCalls []provider.ToolCall
+
+		// Pre-scan to group text or gather tool calls
+		for _, block := range contentList {
+			bType, _ := block["type"].(string)
+
+			if bType == "text" {
+				if t, ok := block["text"].(string); ok {
+					textParts = append(textParts, t)
+				}
+			} else if bType == "tool_use" {
+				// Parse Tool Call (Assistant Side)
+				id, _ := block["id"].(string)
+				name, _ := block["name"].(string)
+				input := block["input"] // JSON object
+
+				inputBytes, _ := json.Marshal(input)
+
+				toolCalls = append(toolCalls, provider.ToolCall{
+					ID:   id,
+					Type: "function",
+					Function: provider.FunctionCall{
+						Name:      name,
+						Arguments: string(inputBytes),
+					},
+				})
+			} else if bType == "tool_result" {
+				// Parse Tool Result (User Side -> Convert to Tool Role Message)
+				// Flush any accumulated text as a User message first
+				if len(textParts) > 0 {
+					messages = append(messages, provider.Message{
+						Role:    "user",
+						Content: strings.Join(textParts, "\n"),
+					})
+					textParts = []string{} // Clear
+				}
+
+				toolUseID, _ := block["tool_use_id"].(string)
+				// Result content can be string or list of blocks (text/image)
+				// For now, simplify to string extraction or raw content
+				resultContent := ""
+				if rc, ok := block["content"].(string); ok {
+					resultContent = rc
+				} else if rList, ok := block["content"].([]interface{}); ok {
+					// extract text from result blocks
+					for _, rItem := range rList {
+						if rMap, ok := rItem.(map[string]interface{}); ok {
+							if rt, ok := rMap["type"].(string); ok && rt == "text" {
+								if rTxt, ok := rMap["text"].(string); ok {
+									resultContent += rTxt
+								}
+							}
+						}
+					}
+				}
+
+				messages = append(messages, provider.Message{
+					Role:       "tool",
+					ToolCallID: toolUseID,
+					Content:    resultContent,
+				})
+			}
+		}
+
+		// Final Flush for this message
+		// If it's assistant with tool calls
+		if m.Role == "assistant" && len(toolCalls) > 0 {
+			msg := provider.Message{
+				Role:      "assistant",
+				ToolCalls: toolCalls,
+			}
+			if len(textParts) > 0 {
+				msg.Content = strings.Join(textParts, "\n")
+			}
+			messages = append(messages, msg)
+		} else if m.Role == "user" && len(textParts) > 0 {
+			// Remaining extracted text
+			messages = append(messages, provider.Message{
+				Role:    "user",
+				Content: strings.Join(textParts, "\n"),
+			})
+		} else if m.Role == "assistant" && len(textParts) > 0 && len(toolCalls) == 0 {
+			// Assistant text only
+			messages = append(messages, provider.Message{
+				Role:    "assistant",
+				Content: strings.Join(textParts, "\n"),
+			})
+		}
 	}
 
 	internalReq := provider.ChatCompletionRequest{
@@ -395,8 +500,10 @@ func AnthropicMessagesHandler(c *gin.Context) {
 
 	// 1.5 Map Tools
 	if len(anthroReq.Tools) > 0 {
+		log.Printf("[DEBUG] Request contains %d tools", len(anthroReq.Tools)) // Debug log
 		internalReq.Tools = []provider.Tool{}
 		for _, t := range anthroReq.Tools {
+			// log.Printf("[DEBUG] Tool: %s", t.Name)
 			internalReq.Tools = append(internalReq.Tools, provider.Tool{
 				Type: "function",
 				Function: provider.ToolFunction{
@@ -530,6 +637,7 @@ func AnthropicMessagesHandler(c *gin.Context) {
 
 					// Case B: Tool Calls
 					if len(delta.ToolCalls) > 0 {
+						log.Printf("[DEBUG] Rx ToolCall: %+v", delta.ToolCalls[0])
 						if !inToolUse || delta.ToolCalls[0].ID != "" {
 							if !inToolUse && blockIndex == 0 {
 								// Close the initial empty text block if we go straight to tools

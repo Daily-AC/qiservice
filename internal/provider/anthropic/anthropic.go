@@ -111,10 +111,97 @@ func (p *AnthropicProvider) ChatCompletion(ctx context.Context, req provider.Cha
 			anthropicReq.System = msg.Content
 			continue
 		}
-		anthropicReq.Messages = append(anthropicReq.Messages, AnthropicMessage{
-			Role:    msg.Role,
-			Content: msg.Content,
-		})
+
+		if msg.Role == "user" || msg.Role == "assistant" {
+			// Check for Tool Calls in Assistant message
+			if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+				var contentBlocks []map[string]interface{}
+
+				// Add text content if present
+				if msg.Content != "" {
+					contentBlocks = append(contentBlocks, map[string]interface{}{
+						"type": "text",
+						"text": msg.Content,
+					})
+				}
+
+				// Add tool_use blocks
+				for _, tc := range msg.ToolCalls {
+					var inputMap map[string]interface{}
+					if err := json.Unmarshal([]byte(tc.Function.Arguments), &inputMap); err != nil {
+						// Fallback if args are not valid JSON (should rare)
+						inputMap = map[string]interface{}{}
+					}
+
+					contentBlocks = append(contentBlocks, map[string]interface{}{
+						"type":  "tool_use",
+						"id":    tc.ID,
+						"name":  tc.Function.Name,
+						"input": inputMap,
+					})
+				}
+
+				anthropicReq.Messages = append(anthropicReq.Messages, AnthropicMessage{
+					Role:    "assistant",
+					Content: contentBlocks,
+				})
+			} else {
+				// Standard Text Message
+				anthropicReq.Messages = append(anthropicReq.Messages, AnthropicMessage{
+					Role:    msg.Role,
+					Content: msg.Content,
+				})
+			}
+		} else if msg.Role == "tool" {
+			// Convert Tool Result (Role: Tool) -> User Message with tool_result block
+			toolResultBlock := map[string]interface{}{
+				"type":        "tool_result",
+				"tool_use_id": msg.ToolCallID,
+				"content":     msg.Content,
+			}
+
+			// Check if we should merge with previous USER message
+			// (Anthropic expects alternating roles usually, but consecutive tools results belong to the same User turn)
+			lastIdx := len(anthropicReq.Messages) - 1
+			if lastIdx >= 0 && anthropicReq.Messages[lastIdx].Role == "user" {
+				// Append to existing User message
+				prevContent := anthropicReq.Messages[lastIdx].Content
+
+				var newContent []interface{}
+				// Convert previous content to slice if it was string
+				if s, ok := prevContent.(string); ok {
+					newContent = append(newContent, map[string]interface{}{"type": "text", "text": s})
+				} else if list, ok := prevContent.([]interface{}); ok {
+					newContent = list
+				} else if list, ok := prevContent.([]map[string]interface{}); ok {
+					// Handle []map[string]interface{} specifically
+					for _, item := range list {
+						newContent = append(newContent, item)
+					}
+				}
+
+				newContent = append(newContent, toolResultBlock)
+				anthropicReq.Messages[lastIdx].Content = newContent
+			} else {
+				// New User Message
+				anthropicReq.Messages = append(anthropicReq.Messages, AnthropicMessage{
+					Role:    "user",
+					Content: []interface{}{toolResultBlock},
+				})
+			}
+		}
+	}
+
+	// Map Tools
+	if len(req.Tools) > 0 {
+		anthropicReq.Tools = []AnthropicTool{}
+		for _, t := range req.Tools {
+			anthropicReq.Tools = append(anthropicReq.Tools, AnthropicTool{
+				Name:        t.Function.Name,
+				Description: t.Function.Description,
+				InputSchema: t.Function.Parameters,
+			})
+		}
 	}
 
 	reqBody, err := json.Marshal(anthropicReq)
@@ -184,13 +271,23 @@ func (p *AnthropicProvider) ChatCompletion(ctx context.Context, req provider.Cha
 
 // Anthropic Streaming Events
 type AnthropicEvent struct {
-	Type  string          `json:"type"`
-	Delta *AnthropicDelta `json:"delta,omitempty"`
+	Type         string          `json:"type"`
+	Delta        *AnthropicDelta `json:"delta,omitempty"`
+	ContentBlock *AnthropicBlock `json:"content_block,omitempty"`
+	Index        int             `json:"index,omitempty"`
+}
+
+type AnthropicBlock struct {
+	Type string `json:"type"`
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+	Text string `json:"text,omitempty"`
 }
 
 type AnthropicDelta struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type        string `json:"type"`
+	Text        string `json:"text,omitempty"`
+	PartialJSON string `json:"partial_json,omitempty"`
 }
 
 func (p *AnthropicProvider) StreamChatCompletion(ctx context.Context, req provider.ChatCompletionRequest, apiKey string, outputChan chan<- provider.StreamResponse) error {
@@ -206,7 +303,75 @@ func (p *AnthropicProvider) StreamChatCompletion(ctx context.Context, req provid
 			anthropicReq.System = msg.Content
 			continue
 		}
-		anthropicReq.Messages = append(anthropicReq.Messages, AnthropicMessage{Role: msg.Role, Content: msg.Content})
+
+		if msg.Role == "user" || msg.Role == "assistant" {
+			// Check for Tool Calls in Assistant message
+			if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+				var contentBlocks []map[string]interface{}
+
+				if msg.Content != "" {
+					contentBlocks = append(contentBlocks, map[string]interface{}{"type": "text", "text": msg.Content})
+				}
+
+				for _, tc := range msg.ToolCalls {
+					var inputMap map[string]interface{}
+					if err := json.Unmarshal([]byte(tc.Function.Arguments), &inputMap); err != nil {
+						inputMap = map[string]interface{}{}
+					}
+					contentBlocks = append(contentBlocks, map[string]interface{}{
+						"type":  "tool_use",
+						"id":    tc.ID,
+						"name":  tc.Function.Name,
+						"input": inputMap,
+					})
+				}
+
+				anthropicReq.Messages = append(anthropicReq.Messages, AnthropicMessage{Role: "assistant", Content: contentBlocks})
+			} else {
+				anthropicReq.Messages = append(anthropicReq.Messages, AnthropicMessage{Role: msg.Role, Content: msg.Content})
+			}
+		} else if msg.Role == "tool" {
+			toolResultBlock := map[string]interface{}{
+				"type":        "tool_result",
+				"tool_use_id": msg.ToolCallID,
+				"content":     msg.Content,
+			}
+
+			lastIdx := len(anthropicReq.Messages) - 1
+			if lastIdx >= 0 && anthropicReq.Messages[lastIdx].Role == "user" {
+				prevContent := anthropicReq.Messages[lastIdx].Content
+				var newContent []interface{}
+				if s, ok := prevContent.(string); ok {
+					newContent = append(newContent, map[string]interface{}{"type": "text", "text": s})
+				} else if list, ok := prevContent.([]interface{}); ok {
+					newContent = list
+				} else if list, ok := prevContent.([]map[string]interface{}); ok {
+					for _, item := range list {
+						newContent = append(newContent, item)
+					}
+				}
+				newContent = append(newContent, toolResultBlock)
+				anthropicReq.Messages[lastIdx].Content = newContent
+			} else {
+				anthropicReq.Messages = append(anthropicReq.Messages, AnthropicMessage{Role: "user", Content: []interface{}{toolResultBlock}})
+			}
+		}
+	}
+
+	// Map Tools
+	if len(req.Tools) > 0 {
+		anthropicReq.Tools = []AnthropicTool{}
+		for _, t := range req.Tools {
+			var schema interface{}
+			// Ensure schema is properly set (handle any/map)
+			schema = t.Function.Parameters
+
+			anthropicReq.Tools = append(anthropicReq.Tools, AnthropicTool{
+				Name:        t.Function.Name,
+				Description: t.Function.Description,
+				InputSchema: schema,
+			})
+		}
 	}
 
 	reqBody, _ := json.Marshal(anthropicReq)
@@ -252,30 +417,60 @@ func (p *AnthropicProvider) StreamChatCompletion(ctx context.Context, req provid
 				Object:  "chat.completion.chunk",
 				Created: time.Now().Unix(),
 				Model:   req.Model,
-				Choices: []provider.StreamChoice{
-					{
-						Index: 0,
-						Delta: provider.Message{
-							Role: "assistant", // Only Role
-						},
-					},
-				},
+				Choices: []provider.StreamChoice{{Index: 0, Delta: provider.Message{Role: "assistant"}}},
 			}
-		} else if event.Type == "content_block_delta" && event.Delta != nil && event.Delta.Type == "text_delta" {
-			// Subsequent chunks: Send Content (No Role)
-			outputChan <- provider.StreamResponse{
-				ID:      "chatcmpl-stream",
-				Object:  "chat.completion.chunk",
-				Created: time.Now().Unix(),
-				Model:   req.Model,
-				Choices: []provider.StreamChoice{
-					{
+		} else if event.Type == "content_block_start" {
+			// Tool Use Start
+			if event.ContentBlock != nil && event.ContentBlock.Type == "tool_use" {
+				outputChan <- provider.StreamResponse{
+					ID:      "chatcmpl-stream",
+					Object:  "chat.completion.chunk",
+					Created: time.Now().Unix(),
+					Model:   req.Model,
+					Choices: []provider.StreamChoice{{
 						Index: 0,
 						Delta: provider.Message{
-							Content: event.Delta.Text, // Only Content
+							ToolCalls: []provider.ToolCall{{
+								ID:   event.ContentBlock.ID,
+								Type: "function",
+								Function: provider.FunctionCall{
+									Name: event.ContentBlock.Name,
+								},
+							}},
 						},
-					},
-				},
+					}},
+				}
+			}
+		} else if event.Type == "content_block_delta" {
+			if event.Delta != nil {
+				if event.Delta.Type == "text_delta" {
+					// Text Content
+					outputChan <- provider.StreamResponse{
+						ID:      "chatcmpl-stream",
+						Object:  "chat.completion.chunk",
+						Created: time.Now().Unix(),
+						Model:   req.Model,
+						Choices: []provider.StreamChoice{{Index: 0, Delta: provider.Message{Content: event.Delta.Text}}},
+					}
+				} else if event.Delta.Type == "input_json_delta" {
+					// Tool Arguments
+					outputChan <- provider.StreamResponse{
+						ID:      "chatcmpl-stream",
+						Object:  "chat.completion.chunk",
+						Created: time.Now().Unix(),
+						Model:   req.Model,
+						Choices: []provider.StreamChoice{{
+							Index: 0,
+							Delta: provider.Message{
+								ToolCalls: []provider.ToolCall{{
+									Function: provider.FunctionCall{
+										Arguments: event.Delta.PartialJSON,
+									},
+								}},
+							},
+						}},
+					}
+				}
 			}
 		}
 	}
