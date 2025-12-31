@@ -398,6 +398,12 @@ func GetStatsHandler(c *gin.Context) {
 	c.JSON(200, data)
 }
 
+// Telemetry Sink (for claude code /api/event_logging/batch)
+func TelemetrySinkHandler(c *gin.Context) {
+	// Just return success to keep the client happy
+	c.Status(200)
+}
+
 func UpdateServicesHandler(c *gin.Context) {
 	var newServices []ServiceConfig
 	if err := c.ShouldBindJSON(&newServices); err != nil {
@@ -1043,6 +1049,9 @@ func RegisterRoutes(r *gin.Engine) {
 		v1.GET("/models", ModelsHandler)
 		v1.POST("/messages", AnthropicMessagesHandler)
 	}
+
+	// Public / specific API routes that bypass Admin Auth
+	r.POST("/api/event_logging/batch", TelemetrySinkHandler)
 
 	// Management API (Protected for local admin)
 	apiGroup := r.Group("/api")
