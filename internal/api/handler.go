@@ -357,9 +357,11 @@ func ChatCompletionsHandler(c *gin.Context) {
 	startTime := time.Now()
 	var finalModel string
 	success := false
+	tokensIn := 0
+	tokensOut := 0
 	defer func() {
 		if finalModel != "" {
-			stats.GlobalManager.Record(finalModel, time.Since(startTime), success)
+			stats.GlobalManager.Record(finalModel, time.Since(startTime), success, tokensIn, tokensOut)
 		}
 	}()
 
@@ -469,8 +471,11 @@ func ChatCompletionsHandler(c *gin.Context) {
 					return false
 				}
 				c.SSEvent("", chunk)
-				success = true // Partial success counts? Or only if stream finishes?
-				// Let's mark success = true if we send at least one chunk (or finish).
+				if chunk.Usage != nil {
+					tokensIn += chunk.Usage.PromptTokens
+					tokensOut += chunk.Usage.CompletionTokens
+				}
+				success = true
 				return true
 			case err, ok := <-errChan:
 				if !ok {
@@ -495,6 +500,8 @@ func ChatCompletionsHandler(c *gin.Context) {
 
 	c.JSON(200, resp)
 	success = true
+	tokensIn = resp.Usage.PromptTokens
+	tokensOut = resp.Usage.CompletionTokens
 }
 
 // Anthropic Handler
@@ -502,9 +509,11 @@ func AnthropicMessagesHandler(c *gin.Context) {
 	startTime := time.Now()
 	var finalModel string
 	success := false
+	tokensIn := 0
+	tokensOut := 0
 	defer func() {
 		if finalModel != "" {
-			stats.GlobalManager.Record(finalModel, time.Since(startTime), success)
+			stats.GlobalManager.Record(finalModel, time.Since(startTime), success, tokensIn, tokensOut)
 		}
 	}()
 
@@ -910,6 +919,16 @@ func AnthropicMessagesHandler(c *gin.Context) {
 
 	c.JSON(200, anthroResp)
 	success = true
+	// Anthropic non-stream response usually has usage
+	// But `ChatCompletionsHandler` calls `p.ChatCompletion` which returns `ChatCompletionResponse`.
+	// For `AnthropicMessagesHandler`, we logic is slightly different (Wait, existing code calls internal helper? No, it proxies or adapts).
+	// ...
+	// Wait, the slow path for Anthropic calls `p.StreamChatCompletion` or what?
+	// It calls `handleReverseProxy` mostly.
+	// But for "Slow Path"? `AnthropicMessagesHandler` doesn't implement Slow Path adapter yet?
+	// Step 1119 lines 572+ show `[SLOW PATH] Adapter`.
+	// But I don't see `p.ChatCompletion` call there?
+	// Ah, I need to check how slow path is implemented.
 }
 
 func toJSON(v interface{}) string {

@@ -17,11 +17,17 @@ type RequestRecord struct {
 	TokensOut int       `json:"tokens_out,omitempty"`
 }
 
+type ModelStats struct {
+	Requests  int `json:"requests"`
+	TokensIn  int `json:"tokens_in"`
+	TokensOut int `json:"tokens_out"`
+}
+
 type DailyStats struct {
-	Date     string          `json:"date"`
-	Records  []RequestRecord `json:"records"`
-	Summary  map[string]int  `json:"summary"` // Model -> Count
-	TotalReq int             `json:"total_requests"`
+	Date     string                `json:"date"`
+	Records  []RequestRecord       `json:"records"`
+	Summary  map[string]ModelStats `json:"summary"` // Model -> Stats
+	TotalReq int                   `json:"total_requests"`
 }
 
 type Manager struct {
@@ -40,7 +46,7 @@ func Init(dataDir string) {
 	}
 }
 
-func (m *Manager) Record(model string, duration time.Duration, success bool) {
+func (m *Manager) Record(model string, duration time.Duration, success bool, tokensIn, tokensOut int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -49,17 +55,25 @@ func (m *Manager) Record(model string, duration time.Duration, success bool) {
 
 	// Append Record
 	stats.Records = append(stats.Records, RequestRecord{
-		Time:     time.Now(),
-		Model:    model,
-		Duration: float64(duration.Milliseconds()),
-		Success:  success,
+		Time:      time.Now(),
+		Model:     model,
+		Duration:  float64(duration.Milliseconds()),
+		Success:   success,
+		TokensIn:  tokensIn,
+		TokensOut: tokensOut,
 	})
 
 	// Update Summary
 	if stats.Summary == nil {
-		stats.Summary = make(map[string]int)
+		stats.Summary = make(map[string]ModelStats)
 	}
-	stats.Summary[model]++
+
+	s := stats.Summary[model]
+	s.Requests++
+	s.TokensIn += tokensIn
+	s.TokensOut += tokensOut
+	stats.Summary[model] = s
+
 	stats.TotalReq++
 
 	m.saveDailyStats(stats)
@@ -73,7 +87,7 @@ func (m *Manager) GetDaily(date string) *DailyStats {
 
 func (m *Manager) loadDailyStats(date string) *DailyStats {
 	path := filepath.Join(m.dataDir, date+".json")
-	stats := &DailyStats{Date: date, Summary: make(map[string]int)}
+	stats := &DailyStats{Date: date, Summary: make(map[string]ModelStats)}
 
 	bytes, err := os.ReadFile(path)
 	if err == nil {

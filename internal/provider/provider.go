@@ -42,6 +42,12 @@ type FunctionCall struct {
 	Arguments string `json:"arguments,omitempty"`
 }
 
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
 // ChatCompletionResponse represents the standard OpenAI chat completion response
 type ChatCompletionResponse struct {
 	ID      string   `json:"id"`
@@ -49,6 +55,7 @@ type ChatCompletionResponse struct {
 	Created int64    `json:"created"`
 	Model   string   `json:"model"`
 	Choices []Choice `json:"choices"`
+	Usage   Usage    `json:"usage,omitempty"`
 }
 
 type Choice struct {
@@ -64,6 +71,7 @@ type StreamResponse struct {
 	Created int64          `json:"created"`
 	Model   string         `json:"model"`
 	Choices []StreamChoice `json:"choices"`
+	Usage   *Usage         `json:"usage,omitempty"` // Pointer to distinguish zero vs missing
 }
 
 type StreamChoice struct {
