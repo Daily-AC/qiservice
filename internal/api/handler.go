@@ -470,9 +470,8 @@ func ChatCompletionsHandler(c *gin.Context) {
 				bodyMap["model"] = matchedService.ModelName
 				if newBytes, err := json.Marshal(bodyMap); err == nil {
 					c.Request.Body = io.NopCloser(bytes.NewBuffer(newBytes))
-					// Also update content length? ReverseProxy might handle it if we don't set ContentLength manually?
-					// Ideally we should set ContentLength.
 					c.Request.ContentLength = int64(len(newBytes))
+					c.Request.Header.Set("Content-Length", strconv.Itoa(len(newBytes)))
 				}
 			}
 		}
@@ -631,6 +630,7 @@ func AnthropicMessagesHandler(c *gin.Context) {
 				if newBytes, err := json.Marshal(bodyMap); err == nil {
 					c.Request.Body = io.NopCloser(bytes.NewBuffer(newBytes))
 					c.Request.ContentLength = int64(len(newBytes))
+					c.Request.Header.Set("Content-Length", strconv.Itoa(len(newBytes)))
 				}
 			}
 		}
