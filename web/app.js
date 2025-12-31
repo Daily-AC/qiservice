@@ -6,6 +6,14 @@ function switchPage(pageId) {
     document.getElementById(pageId).classList.add('active');
     document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
     event.target.classList.add('active');
+
+    if (pageId === 'stats') {
+        // Init date if empty
+        if (!document.getElementById('stats_date').value) {
+            document.getElementById('stats_date').valueAsDate = new Date();
+        }
+        loadStats();
+    }
 }
 
 
@@ -379,4 +387,92 @@ function addMessage(role, text) {
     const container = document.getElementById('chat_messages');
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
+}
+
+// --- Stats Logic ---
+let statsChart = null;
+
+async function loadStats() {
+    const date = document.getElementById('stats_date').value;
+    try {
+        const res = await fetch(`/api/stats?date=${date}`, {
+            headers: { 'Authorization': 'Bearer ' + adminToken }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            renderStats(data);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function renderStats(data) {
+    // 1. Summary
+    const summaryDiv = document.getElementById('stats_summary');
+    summaryDiv.innerHTML = `
+        <div style="font-size: 2rem; color: var(--text-color); font-weight: bold;">${data.total_requests}</div>
+        <div>Total Requests</div>
+    `;
+
+    // 2. Table
+    const tbody = document.getElementById('stats_table_body');
+    tbody.innerHTML = '';
+    if (data.records && data.records.length > 0) {
+        // Show last 50
+        const reversed = [...data.records].reverse().slice(0, 50);
+        reversed.forEach(r => {
+            const row = document.createElement('tr');
+            row.style.borderBottom = "1px solid rgba(255,255,255,0.05)";
+            const timeStr = new Date(r.time).toLocaleTimeString();
+            const statusColor = r.success ? 'var(--success)' : '#ef4444';
+            const statusIcon = r.success ? '✔' : '✘';
+            
+            row.innerHTML = `
+                <td style="padding: 0.5rem; font-family: monospace;">${timeStr}</td>
+                <td style="padding: 0.5rem;">${r.model}</td>
+                <td style="padding: 0.5rem; color: ${statusColor};">${statusIcon}</td>
+                <td style="padding: 0.5rem;">${r.duration_ms.toFixed(0)}ms</td>
+            `;
+            tbody.appendChild(row);
+        });
+    } else {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 1rem;">No data for this date</td></tr>';
+    }
+
+    // 3. Chart
+    const ctx = document.getElementById('chart_model_dist').getContext('2d');
+    if (statsChart) statsChart.destroy();
+
+    const labels = Object.keys(data.summary || {});
+    const values = Object.values(data.summary || {});
+
+    if (labels.length === 0) {
+        // Empty chart
+        return;
+    }
+
+    statsChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: values,
+                backgroundColor: [
+                    '#6366f1', '#a855f7', '#ec4899', '#ef4444', '#f59e0b', '#10b981'
+                ],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: { color: '#e2e8f0' }
+                }
+            }
+        }
+    });
 }

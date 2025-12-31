@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LLM Service Station</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <header>
@@ -13,6 +14,7 @@
         </div>
         <nav class="nav-links">
             <button class="nav-btn active" onclick="switchPage('services')">All Services</button>
+            <button class="nav-btn" onclick="switchPage('stats')">Statistics</button>
             <button class="nav-btn" onclick="switchPage('security')">Access Control</button>
             <button class="nav-btn" onclick="switchPage('playground')">Playground</button>
         </nav>
@@ -37,6 +39,48 @@
             </div>
 
             <button class="fab" onclick="openModal()">+</button>
+        </div>
+
+        <!-- Stats Page -->
+        <div id="stats" class="page">
+             <div style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center;">
+                <h2>Usage Statistics</h2>
+                <input type="date" id="stats_date" class="form-input" style="width: auto;" onchange="loadStats()">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2rem;">
+                 <div class="card" style="background: var(--surface-color); padding: 1rem; border-radius: 1rem;">
+                    <h3>Requests by Model</h3>
+                    <div style="height: 250px;">
+                        <canvas id="chart_model_dist"></canvas>
+                    </div>
+                 </div>
+                 <div class="card" style="background: var(--surface-color); padding: 1rem; border-radius: 1rem;">
+                    <h3>Daily Summary</h3>
+                    <div id="stats_summary" style="margin-top: 1rem; color: var(--text-muted);">
+                        Loading...
+                    </div>
+                 </div>
+            </div>
+
+            <div class="card" style="background: var(--surface-color); padding: 1.5rem; border-radius: 1rem;">
+                <h3>Request Log (Today)</h3>
+                <div style="overflow-x: auto; margin-top: 1rem;">
+                    <table style="width: 100%; text-align: left; border-collapse: collapse;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--surface-border); color: var(--text-muted);">
+                                <th style="padding: 0.5rem;">Time</th>
+                                <th style="padding: 0.5rem;">Model</th>
+                                <th style="padding: 0.5rem;">Status</th>
+                                <th style="padding: 0.5rem;">Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stats_table_body">
+                            <!-- JS Injected -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <!-- Security Page -->
@@ -155,6 +199,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=2.1"></script>
+    <script src="app.js?v=2.2"></script>
 </body>
 </html>
