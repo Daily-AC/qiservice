@@ -479,6 +479,8 @@ func ChatCompletionsHandler(c *gin.Context) {
 					c.Request.Body = io.NopCloser(bytes.NewBuffer(newBytes))
 					c.Request.ContentLength = int64(len(newBytes))
 					c.Request.Header.Set("Content-Length", strconv.Itoa(len(newBytes)))
+					c.Request.Header.Del("Content-Encoding")
+					c.Request.Header.Del("Transfer-Encoding")
 				}
 			}
 		}
@@ -638,6 +640,8 @@ func AnthropicMessagesHandler(c *gin.Context) {
 					c.Request.Body = io.NopCloser(bytes.NewBuffer(newBytes))
 					c.Request.ContentLength = int64(len(newBytes))
 					c.Request.Header.Set("Content-Length", strconv.Itoa(len(newBytes)))
+					c.Request.Header.Del("Content-Encoding")
+					c.Request.Header.Del("Transfer-Encoding")
 				}
 			}
 		}
