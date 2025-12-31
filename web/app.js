@@ -189,9 +189,46 @@ function deleteKey(index) {
     saveKeys();
 }
 
+let tempServiceKeys = [];
+
+function renderServiceKeysList() {
+    const list = document.getElementById('service_keys_list');
+    list.innerHTML = '';
+    tempServiceKeys.forEach((k, i) => {
+        const row = document.createElement('div');
+        row.style.cssText = "display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); padding: 5px 10px; border-radius: 4px;";
+        
+        // Mask key for display
+        const displayKey = k.length > 8 ? k.substr(0, 4) + '...' + k.substr(-4) : '***';
+        
+        row.innerHTML = `
+            <span style="font-family: monospace; font-size: 0.9rem;">${displayKey}</span>
+            <button style="background: none; border: none; color: #ef4444; cursor: pointer;" onclick="removeServiceKey(${i})">×</button>
+        `;
+        list.appendChild(row);
+    });
+}
+
+function addServiceKey() {
+    const input = document.getElementById('new_api_key_input');
+    const val = input.value.trim();
+    if (val) {
+        tempServiceKeys.push(val);
+        input.value = '';
+        renderServiceKeysList();
+    }
+}
+
+function removeServiceKey(index) {
+    tempServiceKeys.splice(index, 1);
+    renderServiceKeysList();
+}
+
 // --- Modal Handling ---
 function openModal(editId = null) {
     document.getElementById('modal_overlay').classList.add('open');
+    document.getElementById('new_api_key_input').value = '';
+    
     if (editId) {
         const s = currentConfig.services.find(s => s.id === editId);
         document.getElementById('modal_title').textContent = 'Edit Service';
@@ -199,21 +236,31 @@ function openModal(editId = null) {
         document.getElementById('service_name').value = s.name;
         document.getElementById('service_type').value = s.type;
         document.getElementById('base_url').value = s.base_url;
-        document.getElementById('api_key').value = s.api_key;
         document.getElementById('model_name').value = s.model_name;
+        
+        // Load Keys
+        if (s.api_keys && s.api_keys.length > 0) {
+            tempServiceKeys = [...s.api_keys];
+        } else if (s.api_key) {
+            tempServiceKeys = [s.api_key];
+        } else {
+            tempServiceKeys = [];
+        }
     } else {
         document.getElementById('modal_title').textContent = 'Add New Service';
         document.getElementById('service_id').value = '';
         document.getElementById('service_name').value = '';
         document.getElementById('service_type').value = 'openai'; 
         document.getElementById('base_url').value = '';
-        document.getElementById('api_key').value = '';
         document.getElementById('model_name').value = '';
+        tempServiceKeys = [];
     }
+    renderServiceKeysList();
 }
 
 function closeModal() {
     document.getElementById('modal_overlay').classList.remove('open');
+    tempServiceKeys = [];
 }
 
 function editService(id) { openModal(id); }
@@ -225,7 +272,8 @@ function saveService() {
         name: document.getElementById('service_name').value,
         type: document.getElementById('service_type').value,
         base_url: document.getElementById('base_url').value,
-        api_key: document.getElementById('api_key').value,
+        api_keys: tempServiceKeys,
+        api_key: tempServiceKeys.length > 0 ? tempServiceKeys[0] : "", // Legacy compat
         model_name: document.getElementById('model_name').value
     };
 
