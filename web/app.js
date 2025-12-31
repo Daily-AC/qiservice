@@ -391,6 +391,7 @@ function addMessage(role, text) {
 
 // --- Stats Logic ---
 let statsChart = null;
+let tokenChart = null;
 
 async function loadStats() {
     const date = document.getElementById('stats_date').value;
@@ -410,16 +411,31 @@ async function loadStats() {
 function renderStats(data) {
     // 1. Summary
     const summaryDiv = document.getElementById('stats_summary');
+    let totalTokens = 0;
+    Object.values(data.summary || {}).forEach(s => totalTokens += (s.tokens_in + s.tokens_out));
+    
     summaryDiv.innerHTML = `
-        <div style="font-size: 2rem; color: var(--text-color); font-weight: bold;">${data.total_requests}</div>
-        <div>Total Requests</div>
+        <div style="display: flex; gap: 3rem; text-align: center;">
+            <div>
+                <div style="font-size: 2rem; font-weight: bold;">${data.total_requests}</div>
+                <div style="color: var(--text-muted);">Total Requests</div>
+            </div>
+            <div>
+                <div style="font-size: 2rem; font-weight: bold;">${totalTokens.toLocaleString()}</div>
+                <div style="color: var(--text-muted);">Total Tokens</div>
+            </div>
+        </div>
     `;
 
     // 2. Table
     const tbody = document.getElementById('stats_table_body');
     tbody.innerHTML = '';
+    const theadRow = document.querySelector('#stats table thead tr');
+    if (theadRow.children.length === 4) {
+        theadRow.innerHTML += '<th style="padding: 0.5rem;">Tokens (In/Out)</th>';
+    }
+
     if (data.records && data.records.length > 0) {
-        // Show last 50
         const reversed = [...data.records].reverse().slice(0, 50);
         reversed.forEach(r => {
             const row = document.createElement('tr');
@@ -433,45 +449,74 @@ function renderStats(data) {
                 <td style="padding: 0.5rem;">${r.model}</td>
                 <td style="padding: 0.5rem; color: ${statusColor};">${statusIcon}</td>
                 <td style="padding: 0.5rem;">${r.duration_ms.toFixed(0)}ms</td>
+                <td style="padding: 0.5rem; font-family: monospace; font-size: 0.9em;">
+                    <span style="color: #a855f7;">${r.tokens_in || 0}</span> / 
+                    <span style="color: #ec4899;">${r.tokens_out || 0}</span>
+                </td>
             `;
             tbody.appendChild(row);
         });
     } else {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 1rem;">No data for this date</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 1rem;">No data for this date</td></tr>';
     }
 
     // 3. Chart
-    const ctx = document.getElementById('chart_model_dist').getContext('2d');
+    const models = Object.keys(data.summary || {});
+    const requestCounts = models.map(k => data.summary[k].requests);
+    const tokensIn = models.map(k => data.summary[k].tokens_in);
+    const tokensOut = models.map(k => data.summary[k].tokens_out);
+
+    if (models.length === 0) return;
+
+    // Request Chart
+    const ctx1 = document.getElementById('chart_model_dist').getContext('2d');
     if (statsChart) statsChart.destroy();
-
-    const labels = Object.keys(data.summary || {});
-    const values = Object.values(data.summary || {});
-
-    if (labels.length === 0) {
-        // Empty chart
-        return;
-    }
-
-    statsChart = new Chart(ctx, {
+    statsChart = new Chart(ctx1, {
         type: 'doughnut',
         data: {
-            labels: labels,
+            labels: models,
             datasets: [{
-                data: values,
-                backgroundColor: [
-                    '#6366f1', '#a855f7', '#ec4899', '#ef4444', '#f59e0b', '#10b981'
-                ],
+                data: requestCounts,
+                backgroundColor: ['#6366f1', '#a855f7', '#ec4899', '#ef4444', '#f59e0b', '#10b981'],
                 borderWidth: 0
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    position: 'right',
-                    labels: { color: '#e2e8f0' }
+            plugins: { legend: { position: 'right', labels: { color: '#e2e8f0' } } }
+        }
+    });
+
+    // Token Chart
+    const ctx2 = document.getElementById('chart_token_dist').getContext('2d');
+    if (tokenChart) tokenChart.destroy();
+    tokenChart = new Chart(ctx2, {
+        type: 'bar',
+        data: {
+            labels: models,
+            datasets: [
+                {
+                    label: 'Input Tokens',
+                    data: tokensIn,
+                    backgroundColor: '#a855f7',
+                    stack: 'Stack 0'
+                },
+                {
+                    label: 'Output Tokens',
+                    data: tokensOut,
+                    backgroundColor: '#ec4899',
+                    stack: 'Stack 0'
                 }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { labels: { color: '#e2e8f0' } } },
+            scales: {
+                x: { ticks: { color: '#94a3b8' }, grid: { display: false } },
+                y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.1)' } }
             }
         }
     });
