@@ -9,6 +9,8 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -250,7 +252,47 @@ func getServiceProtocol(serviceType ServiceType) string {
 	}
 }
 
-func handleReverseProxy(c *gin.Context, targetBaseURL, targetPath, apiKey, protocol string) {
+// --- Usage Snooper ---
+type UsageSnooper struct {
+	io.ReadCloser
+	tokensIn  *int
+	tokensOut *int
+}
+
+var (
+	reInput  = regexp.MustCompile(`"(?:prompt_tokens|input_tokens)"\s*:\s*(\d+)`)
+	reOutput = regexp.MustCompile(`"(?:completion_tokens|output_tokens)"\s*:\s*(\d+)`)
+)
+
+func (s *UsageSnooper) Read(p []byte) (n int, err error) {
+	n, err = s.ReadCloser.Read(p)
+	if n > 0 {
+		chunk := p[:n]
+		// Optimization: Only scan if we see "tokens" keyword
+		if bytes.Contains(chunk, []byte("tokens")) {
+			// Find Input (accumulative logic if multiple chunks contain part? No, regex is simple)
+			// Note: This naive regex might match multiple times or miss split JSON.
+			// Ideally we accumulate stats. But most APIs send Usage block once at end.
+			// We trust the LAST match or use logic to detect if we already found it?
+			// Some APIs like Anthropic send usage in delta updates.
+			if matches := reInput.FindSubmatch(chunk); len(matches) > 1 {
+				val, _ := strconv.Atoi(string(matches[1]))
+				// For streaming, we might see it multiple times?
+				// Anthropic delta: input_tokens in message_start, output_tokens in message_delta/stop.
+				// They are distinct. So += is correct.
+				// OpenAI usage at end: just one block. += is correct (0+val).
+				*s.tokensIn += val
+			}
+			if matches := reOutput.FindSubmatch(chunk); len(matches) > 1 {
+				val, _ := strconv.Atoi(string(matches[1]))
+				*s.tokensOut += val
+			}
+		}
+	}
+	return
+}
+
+func handleReverseProxy(c *gin.Context, targetBaseURL, targetPath, apiKey, protocol string, tokensIn, tokensOut *int) {
 	// Parse Target URL
 	// Ensure targetBaseURL doesn't have trailing slash
 	targetBaseURL = strings.TrimRight(targetBaseURL, "/")
@@ -265,6 +307,12 @@ func handleReverseProxy(c *gin.Context, targetBaseURL, targetPath, apiKey, proto
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(remote)
+
+	// Snoop Body
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		resp.Body = &UsageSnooper{ReadCloser: resp.Body, tokensIn: tokensIn, tokensOut: tokensOut}
+		return nil
+	}
 
 	// Custom Director to set Headers and Path
 	director := proxy.Director
@@ -414,7 +462,7 @@ func ChatCompletionsHandler(c *gin.Context) {
 	if upstreamProtocol == "openai" {
 		// [FAST PATH] Direct Proxy
 		log.Printf("[Proxy] Fast Path: OpenAI -> OpenAI (%s)", matchedService.Name)
-		handleReverseProxy(c, matchedService.BaseURL, "/chat/completions", selectedAPIKey, "openai")
+		handleReverseProxy(c, matchedService.BaseURL, "/chat/completions", selectedAPIKey, "openai", &tokensIn, &tokensOut)
 		success = true // Assume proxy success if no panic, or track status code?
 		// handleReverseProxy writes directly. We can't easily intercept status unless we wrap writer.
 		// For simplicity, assume success if we reached here.
@@ -564,7 +612,7 @@ func AnthropicMessagesHandler(c *gin.Context) {
 		// Usually internal config BaseURL is "https://api.anthropic.com". Client requests "/v1/messages".
 		// ReverseProxy will join them. But handleReverseProxy overrides path.
 		// Let's rely on standard endpoint "/v1/messages" for now.
-		handleReverseProxy(c, matchedService.BaseURL, "/messages", selectedAPIKey, "anthropic")
+		handleReverseProxy(c, matchedService.BaseURL, "/messages", selectedAPIKey, "anthropic", &tokensIn, &tokensOut)
 		// Note: Anthropic API is /v1/messages. If BaseURL includes /v1, then /messages.
 		success = true
 		// If BaseURL is just https://api.anthropic.com, then /v1/messages.
