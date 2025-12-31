@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"io"
 	"log"
@@ -307,6 +308,15 @@ func handleReverseProxy(c *gin.Context, targetBaseURL, targetPath, apiKey, proto
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(remote)
+
+	// Custom Transport to improve stability (Fix 520 errors)
+	proxy.Transport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true, // Allow self-signed certs just in case
+		},
+		DisableKeepAlives: true, // Force fresh connection to avoid 520/Connection Reset
+	}
 
 	// Snoop Body
 	proxy.ModifyResponse = func(resp *http.Response) error {
