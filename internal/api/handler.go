@@ -319,6 +319,13 @@ func handleReverseProxy(c *gin.Context, targetBaseURL, targetPath, apiKey, proto
 	proxy.Director = func(req *http.Request) {
 		director(req)
 
+		// Sanitize Headers
+		req.Header.Del("Origin")
+		req.Header.Del("Referer")
+		req.Header.Del("Cookie")
+		req.Header.Del("Accept-Encoding") // Force plain text for Snooper
+		req.Header.Del("X-Forwarded-For")
+
 		// Set correct Host header (crucial for Cloudflare/Vercel etc)
 		req.Host = remote.Host
 		req.URL.Scheme = remote.Scheme
