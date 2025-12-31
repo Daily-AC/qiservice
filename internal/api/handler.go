@@ -462,6 +462,21 @@ func ChatCompletionsHandler(c *gin.Context) {
 	if upstreamProtocol == "openai" {
 		// [FAST PATH] Direct Proxy
 		log.Printf("[Proxy] Fast Path: OpenAI -> OpenAI (%s)", matchedService.Name)
+
+		// Rewrite Body if Model Name Override exists
+		if matchedService.ModelName != "" && matchedService.ModelName != matchedService.Name {
+			var bodyMap map[string]interface{}
+			if err := json.Unmarshal(bodyBytes, &bodyMap); err == nil {
+				bodyMap["model"] = matchedService.ModelName
+				if newBytes, err := json.Marshal(bodyMap); err == nil {
+					c.Request.Body = io.NopCloser(bytes.NewBuffer(newBytes))
+					// Also update content length? ReverseProxy might handle it if we don't set ContentLength manually?
+					// Ideally we should set ContentLength.
+					c.Request.ContentLength = int64(len(newBytes))
+				}
+			}
+		}
+
 		handleReverseProxy(c, matchedService.BaseURL, "/chat/completions", selectedAPIKey, "openai", &tokensIn, &tokensOut)
 		success = true // Assume proxy success if no panic, or track status code?
 		// handleReverseProxy writes directly. We can't easily intercept status unless we wrap writer.
@@ -607,6 +622,19 @@ func AnthropicMessagesHandler(c *gin.Context) {
 	if upstreamProtocol == "anthropic" {
 		// [FAST PATH] Direct Proxy
 		log.Printf("[Proxy] Fast Path: Anthropic -> Anthropic (%s)", matchedService.Name)
+
+		// Rewrite Body if Model Name Override exists
+		if matchedService.ModelName != "" && matchedService.ModelName != matchedService.Name {
+			var bodyMap map[string]interface{}
+			if err := json.Unmarshal(bodyBytes, &bodyMap); err == nil {
+				bodyMap["model"] = matchedService.ModelName
+				if newBytes, err := json.Marshal(bodyMap); err == nil {
+					c.Request.Body = io.NopCloser(bytes.NewBuffer(newBytes))
+					c.Request.ContentLength = int64(len(newBytes))
+				}
+			}
+		}
+
 		// We presume target path is /v1/messages usually, or append what the client sent?
 		// Usually internal config BaseURL is "https://api.anthropic.com". Client requests "/v1/messages".
 		// ReverseProxy will join them. But handleReverseProxy overrides path.
