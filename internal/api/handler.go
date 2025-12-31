@@ -1,13 +1,16 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"log"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"qiservice/internal/provider"
 	"qiservice/internal/provider/anthropic"
@@ -194,24 +197,88 @@ func ModelsHandler(c *gin.Context) {
 		Created int64  `json:"created"`
 		OwnedBy string `json:"owned_by"`
 	}
-
-	models := []ModelData{}
-	now := time.Now().Unix()
-
+	var models []gin.H
 	for _, s := range config.Services {
-		// Ensure unique model IDs if user configured duplicates, though we assume unique names
-		models = append(models, ModelData{
-			ID:      s.Name, // The Service Name IS the Model ID
-			Object:  "model",
-			Created: now,
-			OwnedBy: "llm-station",
+		models = append(models, gin.H{
+			"id":       s.Name,
+			"object":   "model",
+			"created":  1677610602,
+			"owned_by": "openai",
 		})
 	}
 
-	c.JSON(200, gin.H{
+	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
 		"data":   models,
 	})
+}
+
+// v2.0 Smart Proxy Implementation
+
+func getServiceProtocol(serviceType string) string {
+	switch serviceType {
+	case ServiceTypeOpenAI, "deepseek", "glm", "yi", "moonshot":
+		return "openai"
+	case ServiceTypeAnthropic:
+		return "anthropic"
+	case ServiceTypeGemini:
+		return "gemini"
+	default:
+		return "openai" // Default assumption
+	}
+}
+
+func handleReverseProxy(c *gin.Context, targetBaseURL, targetPath, apiKey, protocol string) {
+	// Parse Target URL
+	// Ensure targetBaseURL doesn't have trailing slash
+	targetBaseURL = strings.TrimRight(targetBaseURL, "/")
+
+	// Create full target URL to parse
+	fullURLStr := targetBaseURL + targetPath
+	remote, err := url.Parse(fullURLStr)
+	if err != nil {
+		log.Printf("[Proxy Error] Invalid Target URL: %v", err)
+		c.JSON(500, gin.H{"error": "Invalid Upstream Configuration"})
+		return
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(remote)
+
+	// Custom Director to set Headers and Path
+	director := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		director(req)
+
+		// Set correct Host header (crucial for Cloudflare/Vercel etc)
+		req.Host = remote.Host
+		req.URL.Scheme = remote.Scheme
+		req.URL.Host = remote.Host
+		req.URL.Path = remote.Path // Use the explicit target path
+
+		// Set Auth Headers based on Protocol
+		if protocol == "openai" {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		} else if protocol == "anthropic" {
+			req.Header.Set("x-api-key", apiKey)
+			req.Header.Set("anthropic-version", "2023-06-01") // Standard version
+		}
+
+		// Remove hop-by-hop headers if needed, generally NewSingleHostReverseProxy handles connection upgrades
+		// But we should ensure we don't pass the Client's Auth
+		if protocol == "openai" && req.Header.Get("Authorization") != "" {
+			// Already replaced above, effectively overwriting client's auth
+		}
+	}
+
+	// Error Handler
+	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
+		log.Printf("[Proxy Error] %v", err)
+		// gin's ResponseWriter might have issues if we write multiple times, but standard http.Error is okay here
+		http.Error(w, "Bad Gateway: "+err.Error(), 502)
+	}
+
+	// Serve
+	proxy.ServeHTTP(c.Writer, c.Request)
 }
 
 // Client Keys Handlers
@@ -361,15 +428,73 @@ func ChatCompletionsHandler(c *gin.Context) {
 
 // Anthropic Handler
 func AnthropicMessagesHandler(c *gin.Context) {
+	// 1. Peek Body to get Model
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Failed to read request body"})
+		return
+	}
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	var baseReq struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(bodyBytes, &baseReq); err != nil {
+		// Anthropic sometimes sends odd JSON or could be pre-flight? No, handler is POST.
+		c.JSON(400, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	// 2. Find Service
+	configMutex.RLock()
+	var matchedService *ServiceConfig
+	for _, s := range config.Services {
+		if s.Name == baseReq.Model {
+			val := s
+			matchedService = &val
+			break
+		}
+	}
+	configMutex.RUnlock()
+
+	if matchedService == nil {
+		c.JSON(404, gin.H{"error": "Model not found: " + baseReq.Model})
+		return
+	}
+
+	// 3. Smart Proxy Decision
+	// Ingress is Anthropic Protocol
+	upstreamProtocol := getServiceProtocol(matchedService.Type)
+
+	if upstreamProtocol == "anthropic" {
+		// [FAST PATH] Direct Proxy
+		log.Printf("[Proxy] Fast Path: Anthropic -> Anthropic (%s)", matchedService.Name)
+		// We presume target path is /v1/messages usually, or append what the client sent?
+		// Usually internal config BaseURL is "https://api.anthropic.com". Client requests "/v1/messages".
+		// ReverseProxy will join them. But handleReverseProxy overrides path.
+		// Let's rely on standard endpoint "/v1/messages" for now.
+		handleReverseProxy(c, matchedService.BaseURL, "/messages", matchedService.APIKey, "anthropic")
+		// Note: Anthropic API is /v1/messages. If BaseURL includes /v1, then /messages.
+		// If BaseURL is just https://api.anthropic.com, then /v1/messages.
+		// Users usually put full base url.
+		// If user put "https://open.bigmodel.cn/api/anthropic/v1", then we append "/messages"?
+		// Let's assume user config follows strict BaseURL convention.
+		// My handleReverseProxy uses fullURLStr := targetBaseURL + targetPath.
+
+		// Wait, Anthropic SDK usually assumes BaseURL doesn't have /messages.
+		// If user config is "https://open.bigmodel.cn/api/anthropic/v1", and we add "/messages".
+		// That matches https://open.bigmodel.cn/api/anthropic/v1/messages. Correct.
+		return
+	}
+
+	// [SLOW PATH] Adapter
 	var anthroReq anthropic.AnthropicRequest
 	if err := c.ShouldBindJSON(&anthroReq); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Debug Request
-	// reqBytes, _ := json.MarshalIndent(anthroReq, "", "  ")
-	// log.Printf("[Debug] Anthropic Request: %s", string(reqBytes))
+	// log.Printf("[Debug] Anthropic Request Model: %s", anthroReq.Model)
 
 	// 1. Convert Anthropic Request -> Internal Request
 	messages := []provider.Message{}
