@@ -34,6 +34,13 @@ type AnthropicRequest struct {
 	System    interface{}        `json:"system,omitempty"` // string or []AnthropicContent
 	MaxTokens int                `json:"max_tokens"`
 	Stream    bool               `json:"stream,omitempty"`
+	Tools     []AnthropicTool    `json:"tools,omitempty"`
+}
+
+type AnthropicTool struct {
+	Name        string      `json:"name"`
+	Description string      `json:"description,omitempty"`
+	InputSchema interface{} `json:"input_schema"`
 }
 
 type AnthropicMessage struct {
