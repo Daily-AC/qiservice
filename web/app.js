@@ -31,6 +31,11 @@ async function checkAuth() {
             if (res.ok) {
                 currentConfig = await res.json();
                 document.getElementById('login_overlay').style.display = 'none';
+                
+                // Show Admin Panel Link if logged in
+                const btnAdmin = document.getElementById('btn-admin-panel');
+                if (btnAdmin) btnAdmin.style.display = 'inline-flex';
+
                 renderServices();
                 renderKeys();
                 updatePlaygroundDropdowns();
