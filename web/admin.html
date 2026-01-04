@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QiService Admin</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <header>
+        <div class="brand">
+            <i class="fas fa-server" style="color: var(--primary);"></i>
+            QiService <span>Admin</span>
+        </div>
+        <div class="nav-links">
+            <button class="nav-btn active" onclick="switchTab('users')">Users</button>
+            <button class="nav-btn" onclick="switchTab('stats')">Analytics</button>
+            <button class="nav-btn" onclick="switchTab('services')">Services</button>
+        </div>
+        <div>
+            <span id="admin-user-display" style="font-size: 0.9rem; margin-right: 1rem; color: var(--text-muted);"></span>
+            <button class="btn btn-secondary btn-sm" onclick="logout()">Logout</button>
+        </div>
+    </header>
+
+    <main>
+        <!-- Users Tab -->
+        <div id="tab-users" class="page active">
+            <div class="service-header" style="justify-content: space-between;">
+                <h2>User Management</h2>
+                <button class="btn btn-primary" onclick="openCreateUserModal()"><i class="fas fa-plus"></i> Add User</button>
+            </div>
+            
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Username</th>
+                            <th>Role</th>
+                            <th>Quota</th>
+                            <th>Used</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table-body">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Analytics Tab -->
+        <div id="tab-stats" class="page">
+            <h2>System Analytics</h2>
+            <div class="grid" style="margin-top: 1rem;">
+                <div class="service-card">
+                    <div class="service-type">Total Requests</div>
+                    <div class="service-name" id="stat-total-req">0</div>
+                </div>
+                <div class="service-card">
+                    <div class="service-type">Total Input Tokens</div>
+                    <div class="service-name" id="stat-tokens-in">0</div>
+                </div>
+                <div class="service-card">
+                    <div class="service-type">Total Output Tokens</div>
+                    <div class="service-name" id="stat-tokens-out">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Services Tab (Placeholder) -->
+        <div id="tab-services" class="page">
+            <h2>Service Configuration</h2>
+            <p style="color: var(--text-muted); margin-top: 1rem;">Edit service configuration in config.json or database.</p>
+            <!-- Could implement table here later -->
+        </div>
+
+    </main>
+
+    <!-- Create User Modal -->
+    <div id="create-user-modal" class="modal-overlay">
+        <div class="modal">
+            <h3 style="margin-bottom: 1.5rem;">Create New User</h3>
+            <div class="form-group">
+                <label class="form-label">Username</label>
+                <input type="text" id="new-username" class="form-input" placeholder="e.g. alice">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" id="new-password" class="form-input" placeholder="Min 6 chars">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Role</label>
+                <select id="new-role" class="form-select">
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Quota (Tokens)</label>
+                <input type="number" id="new-quota" class="form-input" value="100000">
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+                <button class="btn btn-secondary" onclick="closeModal('create-user-modal')">Cancel</button>
+                <button class="btn btn-primary" onclick="submitCreateUser()">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generate Key Modal -->
+    <div id="generate-key-modal" class="modal-overlay">
+        <div class="modal">
+            <h3 style="margin-bottom: 1.5rem;">New API Key</h3>
+            <div class="form-group">
+                <label class="form-label">Key Name</label>
+                <input type="text" id="new-key-name" class="form-input" placeholder="e.g. Laptop">
+            </div>
+            <input type="hidden" id="target-user-id">
+            
+            <div id="key-result-area" style="display: none; background: #0f172a; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem;">
+                <p style="color: var(--success); font-weight: bold; margin-bottom: 0.5rem;">Key Generated:</p>
+                <code id="generated-key-display" style="word-break: break-all; color: white;"></code>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+                <button class="btn btn-secondary" onclick="closeModal('generate-key-modal')">Close</button>
+                <button class="btn btn-primary" id="btn-gen-key" onclick="submitGenerateKey()">Generate</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="admin.js"></script>
+</body>
+</html>
