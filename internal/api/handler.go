@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"qiservice/internal/db"
 	"qiservice/internal/provider"
 	"qiservice/internal/provider/anthropic"
 	"qiservice/internal/provider/gemini"
@@ -73,32 +74,53 @@ func LoadConfig() {
 	configMutex.Lock()
 	defer configMutex.Unlock()
 
-	data, err := os.ReadFile(configFile)
-	if err == nil {
-		json.Unmarshal(data, &config)
-	}
-	// Init if empty
-	if config.Services == nil {
-		config.Services = []ServiceConfig{}
-	}
-	// Migrate APIKey -> APIKeys
-	for i := range config.Services {
-		if len(config.Services[i].APIKeys) == 0 && config.Services[i].APIKey != "" {
-			config.Services[i].APIKeys = []string{config.Services[i].APIKey}
+	// [v3.0] Load from SQLite Database
+	// 1. Load Services
+	var dbServices []db.Service
+	if err := db.DB.Find(&dbServices).Error; err == nil {
+		config.Services = make([]ServiceConfig, 0, len(dbServices))
+		for _, s := range dbServices {
+			targetModel := ""
+			// Simple check if it's JSON or raw
+			if strings.HasPrefix(s.ModelMapping, "{") {
+				var m map[string]string
+				if json.Unmarshal([]byte(s.ModelMapping), &m) == nil {
+					targetModel = m["target_model"]
+				}
+			} else {
+				targetModel = s.ModelMapping
+			}
+
+			config.Services = append(config.Services, ServiceConfig{
+				ID:        strconv.Itoa(int(s.ID)),
+				Name:      s.Name,
+				Type:      ServiceType(s.Type),
+				BaseURL:   s.BaseURL,
+				APIKey:    s.APIKey,
+				ModelName: targetModel,
+			})
 		}
 	}
 
-	if config.ClientKeys == nil {
-		config.ClientKeys = []string{}
+	// 2. Load Client Keys (load all active keys for allow-list)
+	var dbKeys []db.APIKey
+	if err := db.DB.Where("is_active = ?", true).Find(&dbKeys).Error; err == nil {
+		config.ClientKeys = make([]string, 0, len(dbKeys))
+		for _, k := range dbKeys {
+			config.ClientKeys = append(config.ClientKeys, k.Key)
+		}
 	}
-	if config.AdminPassword == "" {
-		// Generate random password if not set
-		config.AdminPassword = uuid.New().String()
-		log.Printf("⚠️  ADMIN PASSWORD NOT SET. GENERATED: %s", config.AdminPassword)
-		saveConfigInternal() // Save immediately so it persists (without locking)
+
+	// 3. Load Admin Password
+	var adminUser db.User
+	if err := db.DB.Where("role = ?", "admin").First(&adminUser).Error; err == nil {
+		// Populate config with the Hash from DB
+		config.AdminPassword = adminUser.PasswordHash
 	} else {
-		log.Printf("🔒 Admin Password Loaded.")
+		config.AdminPassword = "admin"
 	}
+
+	log.Printf("✅ Config loaded from DB: %d Services, %d Keys.", len(config.Services), len(config.ClientKeys))
 }
 
 func SaveConfig() {
@@ -1057,6 +1079,10 @@ func toJSON(v interface{}) string {
 	return string(b)
 }
 func RegisterRoutes(r *gin.Engine) {
+	// Initialize Database and Migrate Config
+	db.Init("qiservice.db")
+	db.MigrateConfig()
+
 	LoadConfig()
 	stats.Init("stats")
 
