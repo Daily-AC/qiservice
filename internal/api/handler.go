@@ -157,20 +157,30 @@ func AuthMiddleware() gin.HandlerFunc {
 			token = parts[1]
 		}
 
-		configMutex.RLock()
-		defer configMutex.RUnlock()
-
-		valid := false
-		for _, key := range config.ClientKeys {
-			if key == token {
-				valid = true
-				break
-			}
+		// [v3.0] DB-based Authentication
+		var keyRecord db.APIKey
+		// Preload User to check quota
+		if err := db.DB.Preload("User").Where("key = ? AND is_active = ?", token, true).First(&keyRecord).Error; err != nil {
+			c.AbortWithStatusJSON(401, gin.H{"error": "Invalid or inactive API Key"})
+			return
 		}
 
-		if !valid {
-			c.AbortWithStatusJSON(401, gin.H{"error": "Invalid API Key"})
-			return
+		// Check User Quota
+		if keyRecord.User.ID != 0 {
+			u := keyRecord.User
+			if u.Role != "admin" && u.Quota > 0 && u.UsedAmount >= u.Quota {
+				c.AbortWithStatusJSON(403, gin.H{
+					"error": "Quota exceeded",
+					"usage": u.UsedAmount,
+					"quota": u.Quota,
+				})
+				return
+			}
+
+			// Inject User Info into Context for Logger
+			c.Set("userID", u.ID)
+			c.Set("username", u.Username)
+			c.Set("apiKeyID", keyRecord.ID)
 		}
 
 		c.Next()
@@ -1104,6 +1114,11 @@ func RegisterRoutes(r *gin.Engine) {
 	{
 		apiGroup.GET("/config", GetConfigHandler)
 		apiGroup.GET("/stats", GetStatsHandler)
+
+		// [v3.0] User Management
+		apiGroup.GET("/users", ListUsersHandler)
+		apiGroup.POST("/users", CreateUserHandler)
+		apiGroup.POST("/user_keys", GenerateAPIKeyHandler)
 		apiGroup.POST("/services", UpdateServicesHandler) // Update full list
 		apiGroup.POST("/keys", UpdateKeysHandler)         // Update key list
 		apiGroup.POST("/login", LoginHandler)             // Actually handled by middleware exception, but good to be explicit or move out

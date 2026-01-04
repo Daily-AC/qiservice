@@ -27,6 +27,7 @@ type APIKey struct {
 	Key       string    `gorm:"uniqueIndex;not null" json:"key"` // "sk-..."
 	Name      string    `json:"name"`                            // "My Laptop", "Testing"
 	UserID    uint      `gorm:"index;not null" json:"user_id"`
+	User      User      `json:"-"` // Belongs To Relation
 	LastUsed  time.Time `json:"last_used"`
 	CreatedAt time.Time `json:"created_at"`
 	IsActive  bool      `gorm:"default:true" json:"is_active"`
