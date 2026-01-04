@@ -1129,6 +1129,8 @@ func RegisterRoutes(r *gin.Engine) {
 	r.StaticFile("/index.html", "./web/index.html")
 	r.StaticFile("/style.css", "./web/style.css")
 	r.StaticFile("/app.js", "./web/app.js")
+	r.StaticFile("/admin.html", "./web/admin.html")
+	r.StaticFile("/admin.js", "./web/admin.js")
 	// Also keep /web for direct access if needed
 	r.Static("/web", "./web")
 
