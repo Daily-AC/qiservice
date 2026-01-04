@@ -652,6 +652,25 @@ func AnthropicMessagesHandler(c *gin.Context) {
 			var bodyMap map[string]interface{}
 			if err := json.Unmarshal(bodyBytes, &bodyMap); err == nil {
 				bodyMap["model"] = matchedService.ModelName
+
+				// [FIX] Sanitize "system" prompt for upstream compatibility
+				if sysVal, ok := bodyMap["system"]; ok {
+					var flatSystem string
+					if sysList, isList := sysVal.([]interface{}); isList {
+						for _, item := range sysList {
+							if itemMap, ok := item.(map[string]interface{}); ok {
+								if t, ok := itemMap["text"].(string); ok {
+									flatSystem += t + "\n"
+								}
+							}
+						}
+						// Replace list with simple string if flattened
+						if flatSystem != "" {
+							bodyMap["system"] = strings.TrimSpace(flatSystem)
+						}
+					}
+				}
+
 				if newBytes, err := json.Marshal(bodyMap); err == nil {
 					c.Request.Body = io.NopCloser(bytes.NewBuffer(newBytes))
 					c.Request.ContentLength = int64(len(newBytes))
