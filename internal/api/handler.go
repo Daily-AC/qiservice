@@ -327,7 +327,25 @@ func GetStatsHandler(c *gin.Context) {
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
 	}
-	data := stats.GlobalManager.GetDaily(date)
+
+	// Determine Scope
+	role := c.GetString("role")
+	userID := c.GetUint("userID")
+
+	// If Admin/SuperAdmin, they *can* see global stats.
+	// But if they want to see "My Stats", how do we distinguish?
+	// For now, let's say Admin Dashboard shows GLOBAL.
+	// If we want "My Stats" for Admin, we'd need a query param or separate endpoint.
+	// Given user request "Users see their own", let's imply:
+	// - Non-Admin -> Enforced UserID scope
+	// - Admin -> Global (userID=0)
+
+	targetUserID := uint(0)
+	if role != db.RoleSuperAdmin && role != db.RoleAdmin {
+		targetUserID = userID
+	}
+
+	data := stats.GlobalManager.GetDaily(date, targetUserID)
 	c.JSON(200, data)
 }
 
@@ -416,11 +434,42 @@ func ChatCompletionsHandler(c *gin.Context) {
 	success := false
 	tokensIn := 0
 	tokensOut := 0
+	// 4. Record Stats (Async)
+	// We need success/failure from the inner logic?
+	// The inner logic returns here.
+	// But `AnthropicMessagesHandler` has deferred `Record`?
+	// The function `AnthropicMessagesHandler` line 583 calls `Record`?
+	// Wait, I am viewing `ChatCompletionsHandler` (lines 580-600).
+	// Where is `AnthropicMessagesHandler`? I need to find it first.
+	// Oh, I haven't seen `AnthropicMessagesHandler` in last view.
+	// Let's find it.
+
+	// Placeholder for correct edit:
+	// I will search for AnthropicMessagesHandler first.
+	// Cancelling this edit.
+	// I will use SEARCH instead.
+	// But tool requires valid arguments.
+	// I will output a dummy edit to comment or just Skip.
+	// Actually, line 591 is inside ChatCompletionsHandler?
+	// Line 431 `func ChatCompletionsHandler`.
+	// Line 599 `}`.
+	// So I am still in ChatCompletionsHandler.
+
+	// I need to fix `ChatCompletionsHandler`'s `Record` call that was failing in previous step?
+	// Previous step failed on line 419-427.
+	// Let's retry that one.
+
+	var userID uint
 	defer func() {
+		// Attempt to extract userID from context
+		if uID, exists := c.Get("userID"); exists {
+			userID = uID.(uint)
+		}
+
 		if finalModel != "" {
-			stats.GlobalManager.Record(finalModel, time.Since(startTime), success, tokensIn, tokensOut)
+			stats.GlobalManager.Record(finalModel, time.Since(startTime), success, tokensIn, tokensOut, userID)
 			// Update User Quota
-			if userID, exists := c.Get("userID"); exists && success {
+			if userID > 0 && success {
 				db.DB.Model(&db.User{}).Where("id = ?", userID).UpdateColumn("used_amount", gorm.Expr("used_amount + ?", float64(tokensIn+tokensOut)))
 			}
 		}
@@ -588,10 +637,15 @@ func AnthropicMessagesHandler(c *gin.Context) {
 	tokensIn := 0
 	tokensOut := 0
 	defer func() {
+		var userID uint
+		if uID, exists := c.Get("userID"); exists {
+			userID = uID.(uint)
+		}
+
 		if finalModel != "" {
-			stats.GlobalManager.Record(finalModel, time.Since(startTime), success, tokensIn, tokensOut)
+			stats.GlobalManager.Record(finalModel, time.Since(startTime), success, tokensIn, tokensOut, userID)
 			// Update User Quota
-			if userID, exists := c.Get("userID"); exists && success {
+			if userID > 0 && success {
 				db.DB.Model(&db.User{}).Where("id = ?", userID).UpdateColumn("used_amount", gorm.Expr("used_amount + ?", float64(tokensIn+tokensOut)))
 			}
 		}
