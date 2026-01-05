@@ -1079,9 +1079,11 @@ func RegisterRoutes(r *gin.Engine) {
 	apiGroup.Use(AuthMiddleware()) // require JWT (or valid Key for some paths)
 	{
 		// Common (User/Admin)
-		apiGroup.GET("/config", GetConfigHandler)       // Filter sensitive data? TODO
-		apiGroup.GET("/my_keys", ListMyKeysHandler)     // [NEW] User gets their own keys
-		apiGroup.POST("/my_keys", GenerateMyKeyHandler) // [NEW] User generates key
+		apiGroup.GET("/config", GetConfigHandler)           // Filter sensitive data? TODO
+		apiGroup.GET("/my_keys", ListMyKeysHandler)         // [NEW] User gets their own keys
+		apiGroup.POST("/my_keys", GenerateMyKeyHandler)     // [NEW] User generates key
+		apiGroup.DELETE("/my_keys/:id", DeleteMyKeyHandler) // [NEW] Delete key
+		apiGroup.GET("/user/me", GetMyProfileHandler)       // [NEW] Get profile (quota)
 
 		// Admin Only
 		admin := apiGroup.Group("/")

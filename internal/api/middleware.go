@@ -53,7 +53,8 @@ func AuthMiddleware() gin.HandlerFunc {
 				if keyRecord.User.ID != 0 {
 					// Check Quota
 					u := keyRecord.User
-					if u.Role != db.RoleSuperAdmin && u.Role != db.RoleAdmin && u.Quota > 0 && u.UsedAmount >= u.Quota {
+					// Quota < 0 means Unlimited. Quota >= 0 means Limited.
+					if u.Role != db.RoleSuperAdmin && u.Role != db.RoleAdmin && u.Quota >= 0 && u.UsedAmount >= u.Quota {
 						c.AbortWithStatusJSON(403, gin.H{"error": "Quota exceeded"})
 						return
 					}

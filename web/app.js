@@ -132,7 +132,9 @@ function renderDashboardServices() {
         </div>
     `;
     grid.appendChild(statsContainer);
-    loadDashboardStats();
+    
+    // Quota Widget
+    loadMyProfile(); 
 
     if (globalServices.length === 0) {
         const d = document.createElement('div');
@@ -192,6 +194,59 @@ function renderCharts(data) {
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
+    });
+}
+
+async function loadMyProfile() {
+    try {
+        const res = await fetch(API + '/user/me', { headers: { 'Authorization': 'Bearer ' + token } });
+        if (res.ok) {
+            const u = await res.json();
+            renderQuotaWidget(u);
+            loadDashboardStats(); // Load charts after profile
+        }
+    } catch(e) { console.error(e); }
+}
+
+function renderQuotaWidget(user) {
+    // Insert before Service List, or integrate into statsContainer? 
+    // Let's prepend to statsContainer if exists, or finding better place.
+    // Actually, let's look for a place in dashboard.
+    // We can inject a new Card.
+    
+    const existing = document.getElementById('quota-card');
+    if (existing) existing.remove(); // Refresh
+    
+    const container = document.getElementById('service-list');
+    
+    const div = document.createElement('div');
+    div.id = 'quota-card';
+    div.className = 'card';
+    div.style.gridColumn = '1 / -1';
+    div.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.1) 0%, rgba(168,85,247,0.1) 100%)';
+    div.style.border = '1px solid rgba(99,102,241,0.2)';
+    div.style.marginBottom = '1.5rem';
+    
+    // Quota < 0 is unlimited. 0 is strictly 0.
+    const isUnlimited = user.quota < 0;
+    const used = user.used_amount;
+    const remaining = isUnlimited ? '∞' : (user.quota - used).toFixed(4);
+    const percent = isUnlimited ? 0 : (user.quota > 0 ? Math.min(100, (used / user.quota) * 100) : 100);
+    
+    div.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+             <h3 style="margin:0; color:var(--primary);">🎟️ 配额状态 (Quota)</h3>
+             <div style="font-weight:bold; font-size:1.2rem;">${isUnlimited ? '无限制 (Unlimited)' : remaining + ' 剩余 / ' + user.quota + ' 总量'}</div>
+        </div>
+        <div style="margin-top:1rem; background:rgba(255,255,255,0.1); border-radius:10px; height:10px; overflow:hidden;">
+            <div style="width:${percent}%; background:var(--primary); height:100%; transition:width 0.5s;"></div>
+        </div>
+        <div style="margin-top:0.5rem; text-align:right; font-size:0.8rem; color:var(--text-muted);">
+            已用: ${used.toFixed(4)} Tokens
+        </div>
+    `;
+    
+    container.insertBefore(div, container.firstChild);
 }
 
 // --- Data: My Keys ---
@@ -261,7 +316,7 @@ function renderMyKeys(keys) {
             </td>
             <td>${k.is_active ? '✅ 正常' : '❌ 停用'}</td>
             <td>
-                <button class="btn btn-sm btn-danger">删除</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteMyKey(${k.id})">删除</button>
             </td>
         `;
         tbody.appendChild(tr);
@@ -275,6 +330,21 @@ function copyText(text) {
         console.error('Failed to copy: ', err);
         prompt("复制失败，请手动复制:", text);
     });
+}
+
+async function deleteMyKey(id) {
+    if(!confirm("确定要删除此密钥吗？")) return;
+    try {
+        const res = await fetch(API + '/my_keys/' + id, {
+            method: 'DELETE',
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (res.ok) {
+            loadMyKeys();
+        } else {
+            alert("删除失败");
+        }
+    } catch(e) { console.error(e); }
 }
 
 // --- Admin: Users ---
