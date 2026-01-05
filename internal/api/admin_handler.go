@@ -262,3 +262,32 @@ func DeleteUserHandler(c *gin.Context) {
 	}
 	c.JSON(200, gin.H{"status": "deleted"})
 }
+
+// DeleteMyKeyHandler - DELETE /api/my_keys/:id
+func DeleteMyKeyHandler(c *gin.Context) {
+	keyID := c.Param("id")
+	userID := c.GetUint("userID")
+
+	var key db.APIKey
+	if err := db.DB.Where("id = ? AND user_id = ?", keyID, userID).First(&key).Error; err != nil {
+		c.JSON(404, gin.H{"error": "Key not found"})
+		return
+	}
+
+	if err := db.DB.Delete(&key).Error; err != nil {
+		c.JSON(500, gin.H{"error": "Failed to delete key"})
+		return
+	}
+	c.JSON(200, gin.H{"status": "deleted"})
+}
+
+// GetMyProfileHandler - GET /api/user/me
+func GetMyProfileHandler(c *gin.Context) {
+	userID := c.GetUint("userID")
+	var user db.User
+	if err := db.DB.First(&user, userID).Error; err != nil {
+		c.JSON(404, gin.H{"error": "User not found"})
+		return
+	}
+	c.JSON(200, user)
+}
