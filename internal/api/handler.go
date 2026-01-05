@@ -419,6 +419,10 @@ func ChatCompletionsHandler(c *gin.Context) {
 	defer func() {
 		if finalModel != "" {
 			stats.GlobalManager.Record(finalModel, time.Since(startTime), success, tokensIn, tokensOut)
+			// Update User Quota
+			if userID, exists := c.Get("userID"); exists && success {
+				db.DB.Model(&db.User{}).Where("id = ?", userID).UpdateColumn("used_amount", gorm.Expr("used_amount + ?", float64(tokensIn+tokensOut)))
+			}
 		}
 	}()
 
@@ -586,6 +590,10 @@ func AnthropicMessagesHandler(c *gin.Context) {
 	defer func() {
 		if finalModel != "" {
 			stats.GlobalManager.Record(finalModel, time.Since(startTime), success, tokensIn, tokensOut)
+			// Update User Quota
+			if userID, exists := c.Get("userID"); exists && success {
+				db.DB.Model(&db.User{}).Where("id = ?", userID).UpdateColumn("used_amount", gorm.Expr("used_amount + ?", float64(tokensIn+tokensOut)))
+			}
 		}
 	}()
 

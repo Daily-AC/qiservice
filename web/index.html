@@ -69,10 +69,7 @@
             </div>
         </div>
 
-        <!-- My Keys -->
-        <div id="page-my-keys" class="page">
-        <!-- ... (unchanged) ... -->
-        </div>
+
 
         <!-- Docs Page -->
         <div id="page-docs" class="page">
@@ -81,7 +78,7 @@
                 <h3>Base Configuration</h3>
                 <p>无论使用哪种客户端，基础配置如下：</p>
                 <ul style="margin-left:1.5rem; line-height:1.8;">
-                    <li><strong>API Endpoint (Base URL):</strong> <code>http://&lt;Server-IP&gt;:8080/v1</code></li>
+                    <li><strong>API Endpoint (Base URL):</strong> <code>http://38.147.185.103:11451/v1</code></li>
                     <li><strong>API Key:</strong> 使用您的 API Key (前往“我的密钥”生成)</li>
                 </ul>
                 <hr style="margin:1.5rem 0; border:0; border-top:1px solid var(--border-color);">
@@ -92,12 +89,12 @@
 import openai
 
 client = openai.OpenAI(
-    base_url="http://localhost:8080/v1",
+    base_url="http://38.147.185.103:11451/v1",
     api_key="sk-..."
 )
 
 resp = client.chat.completions.create(
-    model="claude-3-5-sonnet", # 填入控制台显示的“服务名称”
+    model="anyrouter-haiku-4.5", # 填入控制台显示的“服务名称”
     messages=[{"role": "user", "content": "Hello!"}]
 )
 print(resp.choices[0].message.content)</pre>
@@ -115,18 +112,21 @@ print(resp.choices[0].message.content)</pre>
                 
                 <p><strong>Windows (PowerShell):</strong></p>
                 <pre style="background:var(--bg-body); padding:1rem; border-radius:6px;">
-$env:ANTHROPIC_BASE_URL="http://localhost:8080/v1"
+$env:ANTHROPIC_BASE_URL="http://38.147.185.103:11451"
 $env:ANTHROPIC_API_KEY="sk-..."
+$env:ANTHROPIC_MODEL="anyrouter-haiku-4.5" # 填入控制台显示的“服务名称"
 claude</pre>
 
                 <p><strong>Mac / Linux:</strong></p>
                 <pre style="background:var(--bg-body); padding:1rem; border-radius:6px;">
-export ANTHROPIC_BASE_URL="http://localhost:8080/v1"
+export ANTHROPIC_BASE_URL="http://38.147.185.103:11451"
 export ANTHROPIC_API_KEY="sk-..."
+export ANTHROPIC_MODEL="anyrouter-haiku-4.5" # 填入控制台显示的“服务名称"
 claude</pre>
             </div>
         </div>
-        <!-- ... -->
+        <!-- My Keys -->
+        <div id="page-my-keys" class="page">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
                 <h2>我的密钥 (API Keys)</h2>
                 <button class="btn btn-primary" onclick="generateMyKey()">+ 新建密钥</button>
