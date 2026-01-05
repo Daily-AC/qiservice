@@ -134,115 +134,6 @@ func saveConfigInternal() {
 	os.WriteFile(configFile, data, 0644)
 }
 
-func AuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		token := ""
-
-		// Check x-api-key first (Anthropic style)
-		apiKey := c.GetHeader("x-api-key")
-		if apiKey != "" {
-			token = apiKey
-		} else {
-			// Check Authorization header (OpenAI style)
-			authHeader := c.GetHeader("Authorization")
-			if authHeader == "" {
-				c.AbortWithStatusJSON(401, gin.H{"error": "Authorization header required"})
-				return
-			}
-			parts := strings.Split(authHeader, " ")
-			if len(parts) != 2 || parts[0] != "Bearer" {
-				c.AbortWithStatusJSON(401, gin.H{"error": "Invalid authorization header format"})
-				return
-			}
-			token = parts[1]
-		}
-
-		// [v3.0] DB-based Authentication
-		var keyRecord db.APIKey
-		// Preload User to check quota
-		if err := db.DB.Preload("User").Where("key = ? AND is_active = ?", token, true).First(&keyRecord).Error; err != nil {
-			c.AbortWithStatusJSON(401, gin.H{"error": "Invalid or inactive API Key"})
-			return
-		}
-
-		// Check User Quota
-		if keyRecord.User.ID != 0 {
-			u := keyRecord.User
-			if u.Role != "admin" && u.Quota > 0 && u.UsedAmount >= u.Quota {
-				c.AbortWithStatusJSON(403, gin.H{
-					"error": "Quota exceeded",
-					"usage": u.UsedAmount,
-					"quota": u.Quota,
-				})
-				return
-			}
-
-			// Inject User Info into Context for Logger
-			c.Set("userID", u.ID)
-			c.Set("username", u.Username)
-			c.Set("apiKeyID", keyRecord.ID)
-		}
-
-		c.Next()
-	}
-}
-
-// Admin Authentication Middleware
-func AdminAuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Public endpoints under /api if any? Currently none except Login
-		if c.Request.URL.Path == "/api/login" {
-			c.Next()
-			return
-		}
-
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.AbortWithStatusJSON(401, gin.H{"error": "Authorization header required"})
-			return
-		}
-
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.AbortWithStatusJSON(401, gin.H{"error": "Invalid authorization header format"})
-			return
-		}
-
-		token := parts[1]
-		configMutex.RLock()
-		valid := (token == config.AdminPassword)
-		configMutex.RUnlock()
-
-		if !valid {
-			c.AbortWithStatusJSON(401, gin.H{"error": "Invalid Admin Password"})
-			return
-		}
-
-		c.Next()
-	}
-}
-
-// Login Handler
-func LoginHandler(c *gin.Context) {
-	var req struct {
-		Password string `json:"password"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
-
-	configMutex.RLock()
-	valid := (req.Password == config.AdminPassword)
-	configMutex.RUnlock()
-
-	if valid {
-		c.JSON(200, gin.H{"status": "ok", "token": req.Password})
-	} else {
-		c.JSON(401, gin.H{"error": "Invalid password"})
-	}
-}
-
 // Models Handler
 func ModelsHandler(c *gin.Context) {
 	configMutex.RLock()
@@ -1109,19 +1000,35 @@ func RegisterRoutes(r *gin.Engine) {
 	r.POST("/api/event_logging/batch", TelemetrySinkHandler)
 
 	// Management API (Protected for local admin)
-	apiGroup := r.Group("/api")
-	apiGroup.Use(AdminAuthMiddleware()) // Protect all /api endpoints
-	{
-		apiGroup.GET("/config", GetConfigHandler)
-		apiGroup.GET("/stats", GetStatsHandler)
+	// Public API (Auth)
+	r.POST("/api/register", RegisterHandler)
+	r.POST("/api/login", UserLoginHandler)
 
-		// [v3.0] User Management
-		apiGroup.GET("/users", ListUsersHandler)
-		apiGroup.POST("/users", CreateUserHandler)
-		apiGroup.POST("/user_keys", GenerateAPIKeyHandler)
-		apiGroup.POST("/services", UpdateServicesHandler) // Update full list
-		apiGroup.POST("/keys", UpdateKeysHandler)         // Update key list
-		apiGroup.POST("/login", LoginHandler)             // Actually handled by middleware exception, but good to be explicit or move out
+	// Management API (Protected)
+	apiGroup := r.Group("/api")
+	apiGroup.Use(AuthMiddleware()) // require JWT (or valid Key for some paths)
+	{
+		// Common (User/Admin)
+		apiGroup.GET("/config", GetConfigHandler) // Filter sensitive data? TODO
+
+		// Admin Only
+		admin := apiGroup.Group("/")
+		admin.Use(RoleMiddleware(db.RoleAdmin, db.RoleSuperAdmin))
+		{
+			admin.GET("/stats", GetStatsHandler)
+			admin.GET("/users", ListUsersHandler)
+			admin.POST("/users", CreateUserHandler) // Admin Create User
+			admin.POST("/user_keys", GenerateAPIKeyHandler)
+			admin.POST("/services", UpdateServicesHandler)
+			admin.POST("/keys", UpdateKeysHandler)
+		}
+
+		// Super Admin Only
+		super := apiGroup.Group("/")
+		super.Use(RoleMiddleware(db.RoleSuperAdmin))
+		{
+			super.POST("/user_role", UpdateUserRoleHandler)
+		}
 	}
 
 	// Serve frontend

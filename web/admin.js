@@ -1,20 +1,23 @@
 const API_BASE = '/api';
-let adminToken = localStorage.getItem('admin_token');
+const token = localStorage.getItem('token');
+const user = JSON.parse(localStorage.getItem('user') || '{}');
 
 // --- Auth Check ---
 function checkAuth() {
-    if (!adminToken) {
-        alert("Please login first.");
-        window.location.href = '/';
+    if (!token) {
+        window.location.href = 'login.html';
         return;
     }
+    document.getElementById('admin-user-display').textContent = `Admin: ${user.username}`;
+    
     // Verify token validity by fetching users
     loadUsers();
 }
 
 function logout() {
-    localStorage.removeItem('admin_token');
-    window.location.href = '/';
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = 'login.html';
 }
 
 // --- Navigation ---
@@ -33,7 +36,7 @@ function switchTab(tabId) {
 async function loadUsers() {
     try {
         const res = await fetch(`${API_BASE}/users`, {
-            headers: { 'Authorization': 'Bearer ' + adminToken }
+            headers: { 'Authorization': 'Bearer ' + token }
         });
         if (res.status === 401) { logout(); return; }
         
@@ -91,7 +94,7 @@ async function submitCreateUser() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + adminToken
+                'Authorization': 'Bearer ' + token
             },
             body: JSON.stringify({ username, password, role, quota })
         });
@@ -129,7 +132,7 @@ async function submitGenerateKey() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + adminToken
+                'Authorization': 'Bearer ' + token
             },
             body: JSON.stringify({ user_id: userId, name })
         });
@@ -151,7 +154,7 @@ async function submitGenerateKey() {
 // --- Stats (Reuse existing logic simplified) ---
 async function loadStats() {
     const res = await fetch(`${API_BASE}/stats`, {
-        headers: { 'Authorization': 'Bearer ' + adminToken }
+        headers: { 'Authorization': 'Bearer ' + token }
     });
     const data = await res.json();
     // Assuming backend returns Total Req, etc.

@@ -140,21 +140,7 @@
         </div>
     </main>
 
-    <!-- Login Overlay -->
-    <div class="modal-overlay" id="login_overlay" style="display: flex; background: rgba(0,0,0,0.9); z-index: 9999;">
-        <div class="modal" style="max-width: 400px; text-align: center;">
-            <div style="font-size: 3rem; margin-bottom: 1rem;">🔒</div>
-            <h2 style="margin-bottom: 1rem;">Admin Access</h2>
-            <p style="color: var(--text-muted); margin-bottom: 2rem;">Please enter the administrator password to access the console.</p>
-            
-            <div class="form-group">
-                <input type="password" class="form-input" id="admin_password" placeholder="Password" onkeypress="if(event.key==='Enter') doLogin()">
-            </div>
 
-            <button class="btn btn-primary" onclick="doLogin()" style="width: 100%;">Unlock</button>
-            <div id="login_error" style="color: #ef4444; margin-top: 1rem; display: none;">Invalid password</div>
-        </div>
-    </div>
 
     <!-- Add/Edit Modal -->
     <div class="modal-overlay" id="modal_overlay">

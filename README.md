@@ -50,14 +50,23 @@ go build -o service-station.exe cmd/server/main.go
 
 ### 3. 初次设置
 
-首次运行时，终端会随机生成一个 **Admin Password**，用于登录 Web 管理后台。
+首次运行时，系统会自动初始化 SQLite 数据库。
 
-```text
-⚠️  ADMIN PASSWORD NOT SET. GENERATED: xxxxxxxx-xxxx-xxxx...
-```
+1. **配置迁移**: 如果目录下存在旧版 `config.json`，系统会自动将其导入数据库。
+2. **默认账号**: 如果是全新安装，系统会创建默认超级管理员账号：
 
-请复制该密码，浏览器访问 `http://localhost:11451` 进行解锁。
-解锁后，建议在 Web 后台将其修改为好记的密码。
+   - **Username**: `admin`
+   - **Password**: `admin`
+
+   请立即登录 Web 后台修改密码或创建新管理员。
+
+### 4. 权限体系
+
+v3.0 引入了完整的 RBAC 权限系统：
+
+- **Super Admin**: 拥有最高权限，可管理管理员角色。
+- **Admin**: 服务站管理员，可管理普通用户、配置服务与路由。
+- **User**: 普通用户，仅可申请 API Key 使用服务，无法访问管理面板。
 
 ## � 服务器部署 (Linux/Ubuntu)
 
@@ -117,10 +126,13 @@ sudo systemctl enable qiservice
 ├── cmd/
 │   └── server/       # 程序入口
 ├── internal/
-│   ├── api/          # HTTP 处理器与路由
-│   └── provider/     # 各大模型厂商适配层 (OpenAI/Anthropic/Gemini)
-├── web/              # 前端静态资源 (HTML/CSS/JS)
-└── config.json       # 配置文件 (自动生成，请勿提交到 Git)
+│   ├── api/          # HTTP 处理器 (Auth, User, Admin)
+│   ├── auth/         # JWT 认证工具
+│   ├── db/           # GORM 模型与迁移
+│   └── provider/     # 模型适配层
+├── web/              # 前端 (Vue/Vanilla JS)
+├── qiservice.db      # SQLite 数据库 (自动生成)
+└── config.json       # 旧版配置 (仅用于首次迁移)
 ```
 
 ## ⚠️ 注意事项
