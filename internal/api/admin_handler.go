@@ -160,10 +160,10 @@ func UpdateUserRoleHandler(c *gin.Context) {
 }
 
 type UpdateUserRequest struct {
-	UserID   uint    `json:"user_id" binding:"required"`
-	Password string  `json:"password"`
-	Quota    float64 `json:"quota"`
-	Role     string  `json:"role"` // Optional
+	UserID   uint     `json:"user_id" binding:"required"`
+	Password string   `json:"password"`
+	Quota    *float64 `json:"quota"` // Use pointer to distinguish 0 vs nil, and allow negative
+	Role     string   `json:"role"`  // Optional
 }
 
 // UpdateUserHandler - POST /api/user_update
@@ -199,8 +199,8 @@ func UpdateUserHandler(c *gin.Context) {
 	}
 
 	updates := make(map[string]interface{})
-	if req.Quota >= 0 {
-		updates["quota"] = req.Quota
+	if req.Quota != nil {
+		updates["quota"] = *req.Quota
 	}
 	if req.Password != "" {
 		updates["password_hash"] = req.Password // TODO: Hash
