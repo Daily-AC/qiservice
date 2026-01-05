@@ -1138,12 +1138,12 @@ func RegisterRoutes(r *gin.Engine) {
 		apiGroup.POST("/my_keys", GenerateMyKeyHandler)     // [NEW] User generates key
 		apiGroup.DELETE("/my_keys/:id", DeleteMyKeyHandler) // [NEW] Delete key
 		apiGroup.GET("/user/me", GetMyProfileHandler)       // [NEW] Get profile (quota)
+		apiGroup.GET("/stats", GetStatsHandler)             // [MOVED] Authenticated Users (Scoped)
 
 		// Admin Only
 		admin := apiGroup.Group("/")
 		admin.Use(RoleMiddleware(db.RoleAdmin, db.RoleSuperAdmin))
 		{
-			admin.GET("/stats", GetStatsHandler)
 			admin.GET("/users", ListUsersHandler)
 			admin.POST("/users", CreateUserHandler) // Admin Create User
 			admin.DELETE("/users/:id", DeleteUserHandler)
