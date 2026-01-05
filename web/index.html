@@ -14,7 +14,7 @@
         </div>
         <nav class="nav-links">
             <button class="nav-btn active" onclick="switchPage('services')">All Services</button>
-            <button class="nav-btn" onclick="switchPage('stats')">Statistics</button>
+
             <button class="nav-btn" onclick="switchPage('security')">Access Control</button>
             <button class="nav-btn" onclick="switchPage('playground')">Playground</button>
             <a href="admin.html" id="btn-admin-panel" class="nav-btn" style="display: none; text-decoration: none; align-items: center; justify-content: center;">
@@ -41,56 +41,10 @@
                 <!-- Cards injected by JS -->
             </div>
 
-            <button class="fab" onclick="openModal()">+</button>
+
         </div>
 
-        <!-- Stats Page -->
-        <div id="stats" class="page">
-             <div style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center;">
-                <h2>Usage Statistics</h2>
-                <input type="date" id="stats_date" class="form-input" style="width: auto;" onchange="loadStats()">
-            </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2rem;">
-                 <div class="card" style="background: var(--surface-color); padding: 1rem; border-radius: 1rem;">
-                    <h3>Requests by Model</h3>
-                    <div style="height: 250px;">
-                        <canvas id="chart_model_dist"></canvas>
-                    </div>
-                 </div>
-                 <div class="card" style="background: var(--surface-color); padding: 1rem; border-radius: 1rem;">
-                    <h3>Token Usage (In/Out)</h3>
-                    <div style="height: 250px;">
-                        <canvas id="chart_token_dist"></canvas>
-                    </div>
-                 </div>
-            </div>
-            
-            <div style="text-align: center; margin-bottom: 2rem;">
-                <div id="stats_summary" style="display: inline-block; background: var(--surface-color); padding: 1rem 2rem; border-radius: 1rem;">
-                    Loading...
-                </div>
-            </div>
-
-            <div class="card" style="background: var(--surface-color); padding: 1.5rem; border-radius: 1rem;">
-                <h3>Request Log (Today)</h3>
-                <div style="overflow-x: auto; margin-top: 1rem;">
-                    <table style="width: 100%; text-align: left; border-collapse: collapse;">
-                        <thead>
-                            <tr style="border-bottom: 1px solid var(--surface-border); color: var(--text-muted);">
-                                <th style="padding: 0.5rem;">Time</th>
-                                <th style="padding: 0.5rem;">Model</th>
-                                <th style="padding: 0.5rem;">Status</th>
-                                <th style="padding: 0.5rem;">Duration</th>
-                            </tr>
-                        </thead>
-                        <tbody id="stats_table_body">
-                            <!-- JS Injected -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
 
         <!-- Security Page -->
         <div id="security" class="page">

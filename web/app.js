@@ -85,10 +85,7 @@ function renderServices() {
                     <span style="color: var(--primary); font-family: monospace;">${service.name}</span>
                 </div>
             </div>
-            <div class="service-actions">
-                <button class="btn btn-secondary btn-sm" onclick="editService('${service.id}')">Edit</button>
-                <button class="btn btn-danger btn-sm" onclick="deleteService('${service.id}')">Delete</button>
-            </div>
+
         `;
         grid.appendChild(card);
     });

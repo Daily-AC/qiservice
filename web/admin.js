@@ -10,7 +10,7 @@ function checkAuth() {
     }
     document.getElementById('admin-user-display').textContent = `Admin: ${user.username}`;
     
-    // Verify token validity by fetching users
+    // Default load
     loadUsers();
 }
 
@@ -30,6 +30,7 @@ function switchTab(tabId) {
 
     if (tabId === 'users') loadUsers();
     if (tabId === 'stats') loadStats();
+    if (tabId === 'services') loadServices();
 }
 
 // --- Users Management ---
@@ -73,6 +74,151 @@ function renderUsers(users) {
             </td>
         `;
         tbody.appendChild(tr);
+    });
+}
+
+// --- Service Management ---
+let currentServices = [];
+
+async function loadServices() {
+    try {
+        const res = await fetch(`${API_BASE}/config`, {  // Reuse existing GET /config for listing? Or create separate list? /config returns full JSON including services.
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        const data = await res.json();
+        currentServices = data.services || [];
+        renderServices();
+    } catch(e) { console.error(e); }
+}
+
+function renderServices() {
+    const grid = document.getElementById('admin_service_grid');
+    grid.innerHTML = '';
+    currentServices.forEach(s => {
+        const card = document.createElement('div');
+        card.className = 'service-card'; // Reuse style from index? Check styles.
+        // Assuming style.css is shared.
+        card.innerHTML = `
+             <div class="service-header">
+                <div>
+                    <div class="service-name" style="font-weight: bold; font-size: 1.2rem;">${s.name}</div>
+                    <div class="service-type" style="color: var(--text-muted); font-size: 0.9rem;">${s.type}</div>
+                </div>
+                 <div class="service-actions">
+                    <button class="btn btn-secondary btn-sm" onclick="openServiceModal('${s.id}')">Edit</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteService('${s.id}')">Delete</button>
+                </div>
+            </div>
+            <div class="service-details" style="margin-top: 1rem; font-size: 0.9rem;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                    <span>Base URL:</span>
+                    <span style="opacity: 0.7;">${s.base_url || 'Default'}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <span>Target Model:</span>
+                    <span style="color: var(--primary);">${s.model_name || '(Passthrough)'}</span>
+                </div>
+                 <div style="margin-top: 0.5rem; color: var(--text-muted);">
+                    ${s.api_keys ? s.api_keys.length : 0} API Keys
+                </div>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+function openServiceModal(editId = null) {
+    document.getElementById('service-modal').classList.add('open');
+    if (editId) {
+        const s = currentServices.find(x => x.id === editId);
+        document.getElementById('modal_title').textContent = 'Edit Service';
+        document.getElementById('service_id').value = s.id;
+        document.getElementById('service_name').value = s.name;
+        document.getElementById('service_type').value = s.type;
+        document.getElementById('base_url').value = s.base_url;
+        document.getElementById('model_name').value = s.model_name;
+        document.getElementById('service_keys_raw').value = s.api_keys ? s.api_keys.join('\n') : (s.api_key || '');
+    } else {
+        document.getElementById('modal_title').textContent = 'Add Service';
+        document.getElementById('service_id').value = '';
+        document.getElementById('service_name').value = '';
+        document.getElementById('service_type').value = 'openai';
+        document.getElementById('base_url').value = '';
+        document.getElementById('model_name').value = '';
+        document.getElementById('service_keys_raw').value = '';
+    }
+}
+
+async function submitSaveService() {
+    const id = document.getElementById('service_id').value;
+    const name = document.getElementById('service_name').value;
+    const type = document.getElementById('service_type').value;
+    const baseUrl = document.getElementById('base_url').value;
+    const modelName = document.getElementById('model_name').value;
+    const keysRaw = document.getElementById('service_keys_raw').value;
+    
+    // Parse keys (split by newline and trim)
+    const keys = keysRaw.split('\n').map(k => k.trim()).filter(k => k !== '');
+
+    const serviceObj = {
+        id: id || generateUUID(),
+        name,
+        type,
+        base_url: baseUrl,
+        api_keys: keys,
+        api_key: keys.length > 0 ? keys[0] : "", // legacy compat
+        model_name: modelName
+    };
+
+    // Update local list then save ALL
+    let newServices = [...currentServices];
+    if (id) {
+        const idx = newServices.findIndex(x => x.id === id);
+        if (idx !== -1) newServices[idx] = serviceObj;
+    } else {
+        newServices.push(serviceObj);
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/services`, {
+            method: 'POST',
+            headers: {
+                 'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
+            },
+            body: JSON.stringify(newServices)
+        });
+        if (res.ok) {
+            closeModal('service-modal');
+            loadServices();
+        } else {
+            alert('Failed to save service');
+        }
+    } catch(e) { console.error(e); }
+}
+
+async function deleteService(id) {
+    if (!confirm('Delete this service?')) return;
+    const newServices = currentServices.filter(s => s.id !== id);
+     try {
+        const res = await fetch(`${API_BASE}/services`, {
+            method: 'POST',
+            headers: {
+                 'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
+            },
+            body: JSON.stringify(newServices)
+        });
+        if (res.ok) {
+            loadServices();
+        }
+    } catch(e) { console.error(e); }
+}
+
+function generateUUID() {
+     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
     });
 }
 
@@ -157,11 +303,6 @@ async function loadStats() {
         headers: { 'Authorization': 'Bearer ' + token }
     });
     const data = await res.json();
-    // Assuming backend returns Total Req, etc.
-    // Actually current /api/stats returns { date: string, records: [], summary: {}, total_requests: int }
-    // It is "Daily Stats".
-    // For "System Analytics" we might want global totals.
-    // But let's show what we have.
     document.getElementById('stat-total-req').textContent = data.total_requests || 0;
     
     // Calculate totals from summary if available
