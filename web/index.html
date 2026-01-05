@@ -1,153 +1,255 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LLM Service Station</title>
+    <title>AI Service Station | 控制台</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Add FontAwesome/Iconify if needed, using simple unicode/svg for now -->
 </head>
 <body>
-    <header>
-        <div class="brand">
-            <span>⚡</span> Service Station
-        </div>
-        <nav class="nav-links">
-            <button class="nav-btn active" onclick="switchPage('services')">All Services</button>
+    <div id="login_check" style="position:fixed;top:0;left:0;width:100%;height:100%;background:var(--bg-body);z-index:9999;display:flex;align-items:center;justify-content:center;">
+        <div style="text-align:center; color:var(--text-muted);">正在加载...</div>
+    </div>
 
-            <button class="nav-btn" onclick="switchPage('security')">Access Control</button>
-            <button class="nav-btn" onclick="switchPage('playground')">Playground</button>
-            <a href="admin.html" id="btn-admin-panel" class="nav-btn" style="display: none; text-decoration: none; align-items: center; justify-content: center;">
-                <span style="font-size: 1.1em; margin-right: 4px;">🛠️</span> Admin
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="brand">
+            <span>⚡</span> 服务中转站
+        </div>
+        
+        <nav class="nav-group">
+            <div class="nav-label">控制台</div>
+            <a class="nav-item active" onclick="nav('dashboard')" id="nav-dashboard">
+                <span>📊</span> 概览
+            </a>
+            <a class="nav-item" onclick="nav('my-keys')" id="nav-keys">
+                <span>🔑</span> 我的密钥
+            </a>
+            <a class="nav-item" onclick="nav('playground')" id="nav-playground">
+                <span>🎮</span> 调试沙箱
             </a>
         </nav>
-    </header>
 
-    <main id="app-content" style="display: none;">
-        <!-- Services Page -->
-        <div id="services" class="page active">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                <h2>My AI Services</h2>
-                <div style="font-size: 0.9rem; color: var(--text-muted);">
-                    Endpoint: <code style="color: var(--primary); background: rgba(99,102,241,0.1); padding: 0.2rem 0.5rem; border-radius: 4px;">/v1/chat/completions</code>
-                </div>
+        <!-- Admin Only -->
+        <nav class="nav-group" id="admin-nav" style="display: none;">
+            <div class="nav-label">管理面板</div>
+            <a class="nav-item" onclick="nav('users')" id="nav-users">
+                <span>👥</span> 用户管理
+            </a>
+            <a class="nav-item" onclick="nav('services')" id="nav-services">
+                <span>🔌</span> 服务配置
+            </a>
+            <!-- <a class="nav-item" onclick="nav('system')"><span>⚙️</span> 系统设置</a> -->
+        </nav>
+
+        <div class="user-profile">
+            <div class="avatar" id="user-avatar">U</div>
+            <div style="flex:1; overflow:hidden;">
+                <div style="font-weight:600; text-overflow:ellipsis; overflow:hidden;" id="disp-username">User</div>
+                <div style="font-size:0.75rem; color:var(--text-muted);" id="disp-role">Role</div>
             </div>
-            
-            <p style="color: var(--text-muted); margin-bottom: 2rem;">
-                These are the routing rules. When a client requests a specific <b>Model Name</b>, the request is forwarded to the corresponding Service.
+            <button class="btn btn-secondary btn-sm" onclick="logout()" title="退出登录">➜</button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        
+        <!-- Dashboard (Service List & Stats Preview) -->
+        <div id="page-dashboard" class="page active">
+            <h2>服务概览</h2>
+            <p style="color:var(--text-muted); margin-bottom:1.5rem;">
+                统一接入点: <code style="color:var(--primary); background:rgba(99,102,241,0.1); padding:2px 6px; border-radius:4px;">/v1/chat/completions</code>
             </p>
-
-            <div class="grid" id="service_grid">
-                <!-- Cards injected by JS -->
-            </div>
-
-
-        </div>
-
-
-
-        <!-- Security Page -->
-        <div id="security" class="page">
-             <div style="margin-bottom: 2rem;">
-                <h2>Access Control</h2>
-                <p style="color: var(--text-muted);">Manage Client Keys. Clients must include <code>Authorization: Bearer &lt;KEY&gt;</code> in their requests.</p>
-            </div>
-
-            <div class="card" style="background: var(--surface-color); padding: 1.5rem; border-radius: 1rem; border: 1px solid var(--surface-border);">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                    <h3>Client Keys</h3>
-                    <button class="btn btn-primary btn-sm" onclick="generateKey()">Generate New Key</button>
-                </div>
-                <div id="keys_list" style="display: flex; flex-direction: column; gap: 0.75rem;">
-                    <!-- Keys injected here -->
-                </div>
-            </div>
-        </div>
-
-        <!-- Playground Page -->
-        <div id="playground" class="page">
-            <div style="margin-bottom: 2rem;">
-                <h2>Test Sandbox</h2>
-                <p style="color: var(--text-muted);">Test your configured services.</p>
-            </div>
             
-            <div style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center;">
-                <select id="playground_model" class="form-select" style="max-width: 300px;">
-                    <option value="">Select a Model/Service...</option>
-                </select>
-                <select id="playground_key" class="form-select" style="max-width: 300px;">
-                     <option value="">Select an API Key...</option>
-                </select>
+            <div class="grid" id="service-list">
+                <!-- JS Injected -->
             </div>
+        </div>
 
-            <div class="chat-container">
-                <div class="chat-messages" id="chat_messages">
-                    <div class="chat-bubble chat-assistant">
-                        Hello! Select a model and key above to start testing.
-                    </div>
+        <!-- My Keys -->
+        <div id="page-my-keys" class="page">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+                <h2>我的密钥 (API Keys)</h2>
+                <button class="btn btn-primary" onclick="generateMyKey()">+ 新建密钥</button>
+            </div>
+            <div class="card">
+                <table class="data-table">
+                    <thead><tr><th>名称</th><th>Key (部分隐藏)</th><th>状态</th><th>操作</th></tr></thead>
+                    <tbody id="my-keys-list"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Playground -->
+        <div id="page-playground" class="page">
+            <h2>调试沙箱</h2>
+            <div class="card chat-container">
+                <div style="border-bottom:1px solid var(--border-color); padding-bottom:1rem; margin-bottom:1rem; display:flex; gap:1rem;">
+                    <select id="pg-model" class="form-select" style="max-width:200px;"></select>
+                    <select id="pg-key" class="form-select" style="max-width:200px;"></select>
+                </div>
+                <div class="chat-messages" id="pg-messages">
+                    <div class="chat-bubble chat-assistant">你好！请先选择模型和密钥，然后开始测试。</div>
                 </div>
                 <div class="chat-input-area">
-                    <input type="text" class="form-input" id="chat_input" placeholder="Type your message..." onkeypress="handleEnter(event)">
-                    <button class="btn btn-primary" onclick="sendMessage()">Send</button>
+                    <input type="text" id="pg-input" class="form-input" placeholder="输入消息..." onkeypress="if(event.key==='Enter') sendMsg()">
+                    <button class="btn btn-primary" onclick="sendMsg()">发送</button>
                 </div>
             </div>
         </div>
+
+        <!-- ADMIN: User Management -->
+        <div id="page-users" class="page">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+                <h2>用户管理</h2>
+                <button class="btn btn-primary" onclick="openCreateUserModal()">+ 新增用户</button>
+            </div>
+            <div class="card">
+                <table class="data-table">
+                    <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>配额 (Quota/Used)</th><th>操作</th></tr></thead>
+                    <tbody id="user-list-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ADMIN: Service Management -->
+        <div id="page-services" class="page">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+                <h2>服务配置</h2>
+                <button class="btn btn-primary" onclick="openServiceModal()">+ 添加上游服务</button>
+            </div>
+            <div class="grid" id="admin-service-list">
+                <!-- JS Injected (Admin View) -->
+            </div>
+        </div>
+
     </main>
 
-
-
-    <!-- Add/Edit Modal -->
-    <div class="modal-overlay" id="modal_overlay">
+    <!-- Modals -->
+    
+    <!-- Create Key Modal -->
+    <div class="modal-overlay" id="modal-key">
         <div class="modal">
-            <h2 style="margin-bottom: 1.5rem;" id="modal_title">Add New Service</h2>
-            <input type="hidden" id="service_id">
-            
+            <h3>新建 API Key</h3>
             <div class="form-group">
-                <label class="form-label">Service Name (Model Name)</label>
-                <input type="text" class="form-input" id="service_name" placeholder="e.g. gpt-4-turbo">
-                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">Clients will use this name in the "model" field to target this service.</div>
+                <label class="form-label">备注名称</label>
+                <input type="text" id="key-name-input" class="form-input" placeholder="例如: Cursor Projects">
             </div>
-
-            <div class="form-group">
-                <label class="form-label">Provider Type</label>
-                <select class="form-select" id="service_type" onchange="updatePlaceholders()">
-                    <option value="openai">OpenAI</option>
-                    <option value="gemini">Google Gemini</option>
-                    <option value="anthropic">Anthropic Claude</option>
-                </select>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Base URL</label>
-                <input type="text" class="form-input" id="base_url" placeholder="https://api.openai.com/v1">
-                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">Leave empty for default official URL.</div>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">API KEYS (Pool)</label>
-                <div id="service_keys_list" style="margin-bottom: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; max-height: 150px; overflow-y: auto;">
-                    <!-- Keys injected here -->
-                </div>
-                <div style="display: flex; gap: 0.5rem;">
-                    <input type="password" class="form-input" id="new_api_key_input" placeholder="sk-..." onkeypress="if(event.key==='Enter') addServiceKey()">
-                    <button class="btn btn-secondary" onclick="addServiceKey()">Add</button>
-                </div>
-                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">Keys are rotated (Round-Robin) for load balancing.</div>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Model Name Override (Optional)</label>
-                <input type="text" class="form-input" id="model_name" placeholder="e.g. gpt-4o">
-                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">If set, the backend will send THIS model name to the provider instead of the service name.</div>
-            </div>
-
-            <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="saveService()">Save Service</button>
+            <div style="text-align:right; margin-top:1.5rem;">
+                <button class="btn btn-secondary" onclick="closeModal('modal-key')">取消</button>
+                <button class="btn btn-primary" onclick="submitNewMyKey()">创建</button>
             </div>
         </div>
     </div>
 
-    <script src="app.js?v=3.0"></script>
+    <!-- Create User Modal -->
+    <div class="modal-overlay" id="modal-user">
+        <div class="modal">
+            <h3>创建新用户</h3>
+            <div class="form-group">
+                <label class="form-label">用户名</label>
+                <input type="text" id="cu-username" class="form-input">
+            </div>
+            <div class="form-group">
+                <label class="form-label">密码</label>
+                <input type="text" id="cu-password" class="form-input">
+            </div>
+            <div class="form-group">
+                <label class="form-label">角色</label>
+                <select id="cu-role" class="form-select">
+                    <option value="user">普通用户 (User)</option>
+                    <option value="admin">管理员 (Admin)</option>
+                </select>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-top:0.5rem;" id="cu-role-hint">注意：仅超管可创建管理员。</p>
+            </div>
+            <div class="form-group">
+                <label class="form-label">配额</label>
+                <input type="number" id="cu-quota" class="form-input" value="100000">
+            </div>
+            <div style="text-align:right; margin-top:1.5rem;">
+                <button class="btn btn-secondary" onclick="closeModal('modal-user')">取消</button>
+                <button class="btn btn-primary" onclick="submitCreateUser()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div class="modal-overlay" id="modal-edit-user">
+        <div class="modal">
+            <h3>编辑用户</h3>
+            <input type="hidden" id="eu-id">
+            <div class="form-group">
+                <label class="form-label">用户名</label>
+                <input type="text" id="eu-username" class="form-input" disabled>
+            </div>
+            <div class="form-group">
+                <label class="form-label">角色 (仅超管可改)</label>
+                <select id="eu-role" class="form-select" disabled>
+                     <option value="user">普通用户</option>
+                     <option value="admin">管理员</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">修改密码 (留空不修改)</label>
+                <input type="text" id="eu-password" class="form-input">
+            </div>
+            <div class="form-group">
+                <label class="form-label">调整配额</label>
+                <input type="number" id="eu-quota" class="form-input">
+            </div>
+             <div style="text-align:right; margin-top:1.5rem;">
+                <button class="btn btn-secondary" onclick="closeModal('modal-edit-user')">取消</button>
+                <button class="btn btn-primary" onclick="submitEditUser()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Service Modal -->
+    <div class="modal-overlay" id="modal-service">
+        <div class="modal">
+            <h3 id="ms-title">服务配置</h3>
+            <input type="hidden" id="ms-id">
+
+            <div class="form-group">
+                <label class="form-label">服务名称 (Model Name)</label>
+                <input type="text" id="ms-name" class="form-input" placeholder="客户端请求时使用的模型名">
+            </div>
+             <div class="form-group">
+                <label class="form-label">服务商</label>
+                <select id="ms-type" class="form-select">
+                    <option value="openai">OpenAI / Compatible</option>
+                    <option value="anthropic">Anthropic Claude</option>
+                    <option value="gemini">Google Gemini</option>
+                </select>
+            </div>
+             <div class="form-group">
+                <label class="form-label">Base URL</label>
+                <input type="text" id="ms-url" class="form-input" placeholder="留空则使用官方默认">
+            </div>
+             <div class="form-group">
+                <label class="form-label">映射模型 (Override)</label>
+                <input type="text" id="ms-map" class="form-input" placeholder="实际转发给上游的模型名 (可选)">
+            </div>
+             <div class="form-group">
+                <label class="form-label">API Key 池</label>
+                <div style="display:flex; gap:0.5rem; margin-bottom:0.5rem;">
+                    <input type="text" id="ms-new-key" class="form-input" placeholder="输入 API Key (sk-...)">
+                    <button class="btn btn-secondary" onclick="addServiceKey()">+</button>
+                </div>
+                <div id="ms-keys-list" style="max-height:150px; overflow-y:auto; border:1px solid var(--border-color); border-radius:6px; padding:0.5rem;">
+                    <!-- Keys will be rendered here -->
+                </div>
+            </div>
+            <div style="text-align:right; margin-top:1.5rem;">
+                <button class="btn btn-secondary" onclick="closeModal('modal-service')">取消</button>
+                <button class="btn btn-primary" onclick="submitService()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=4.0"></script>
 </body>
 </html>

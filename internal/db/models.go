@@ -46,7 +46,8 @@ type Service struct {
 	Name         string `gorm:"uniqueIndex;not null" json:"name"` // "claude-3-5-sonnet"
 	Type         string `json:"type"`                             // "openai", "anthropic", "gemini"
 	BaseURL      string `json:"base_url"`
-	APIKey       string `json:"api_key"`       // Upstream Key
+	APIKey       string `json:"api_key"`       // Upstream Key (Legacy/Primary)
+	APIKeys      string `json:"api_keys_json"` // JSON Array of keys: ["sk-...", "sk-..."]
 	ModelMapping string `json:"model_mapping"` // JSON string: {"anyrouter-haiku": "claude-haiku"}
 	IsActive     bool   `gorm:"default:true" json:"is_active"`
 }
