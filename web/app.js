@@ -194,7 +194,6 @@ function renderCharts(data) {
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
-    });
 }
 
 async function loadMyProfile() {
