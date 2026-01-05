@@ -18,63 +18,38 @@ function switchPage(pageId) {
 
 
 // --- Authentication ---
-let adminToken = localStorage.getItem('admin_token');
+const token = localStorage.getItem('token');
+const user = JSON.parse(localStorage.getItem('user') || '{}');
 
 // Only called at startup
 async function checkAuth() {
-    if (adminToken) {
-        // Try to load config
-        try {
-            const res = await fetch('/api/config', {
-                headers: { 'Authorization': 'Bearer ' + adminToken }
-            });
-            if (res.ok) {
-                currentConfig = await res.json();
-                document.getElementById('login_overlay').style.display = 'none';
-                
-                // Show Admin Panel Link if logged in
-                const btnAdmin = document.getElementById('btn-admin-panel');
-                if (btnAdmin) btnAdmin.style.display = 'inline-flex';
-
-                renderServices();
-                renderKeys();
-                updatePlaygroundDropdowns();
-            } else {
-                // Token invalid
-                document.getElementById('login_overlay').style.display = 'flex';
-            }
-        } catch (e) {
-            document.getElementById('login_overlay').style.display = 'flex';
-        }
-    } else {
-        document.getElementById('login_overlay').style.display = 'flex';
+    if (!token) {
+        window.location.href = 'login.html';
+        return;
     }
-}
 
-async function doLogin() {
-    const pwd = document.getElementById('admin_password').value;
+    // Show Admin Panel Link if admin
+    if (user.role === 'admin' || user.role === 'super_admin') {
+        const btnAdmin = document.getElementById('btn-admin-panel');
+        if (btnAdmin) btnAdmin.style.display = 'inline-flex';
+    }
+
+    // Load Data
     try {
-        const res = await fetch('/api/login', {
-            method: 'POST',
-            body: JSON.stringify({ password: pwd })
-        });
-        if (res.ok) {
-            const data = await res.json();
-            adminToken = data.token;
-            localStorage.setItem('admin_token', adminToken);
-            checkAuth(); // Reload
-        } else {
-            document.getElementById('login_error').style.display = 'block';
-        }
+        await Promise.all([renderServices(), renderKeys(), updatePlaygroundDropdowns()]);
     } catch (e) {
-        console.error(e);
-        document.getElementById('login_error').textContent = 'Network Error';
-        document.getElementById('login_error').style.display = 'block';
+        // invalid token?
     }
 }
 
 // --- Initialization ---
 window.onload = checkAuth;
+
+function logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = 'login.html';
+}
 
 // --- Rendering Services ---
 function renderServices() {
@@ -132,7 +107,7 @@ async function saveAllServices() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + adminToken
+                'Authorization': 'Bearer ' + token
             },
             body: JSON.stringify(currentConfig.services)
         });
@@ -158,7 +133,7 @@ async function saveKeys() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + adminToken
+                'Authorization': 'Bearer ' + token
             },
             body: JSON.stringify(currentConfig.client_keys)
         });

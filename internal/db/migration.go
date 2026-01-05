@@ -55,7 +55,7 @@ func MigrateConfig() {
 	// 1. Create Admin User
 	adminUser := User{
 		Username:     "admin",
-		Role:         "admin",
+		Role:         RoleSuperAdmin,
 		Quota:        9999999,                             // Unlimited
 		PasswordHash: hashPassword(jsonCfg.AdminPassword), // Need a hash function
 	}

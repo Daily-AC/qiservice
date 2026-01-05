@@ -6,12 +6,19 @@ import (
 	"gorm.io/gorm"
 )
 
+// Role Definitions
+const (
+	RoleSuperAdmin = "super_admin"
+	RoleAdmin      = "admin"
+	RoleUser       = "user"
+)
+
 // User represents a system user (admin or client)
 type User struct {
 	ID           uint           `gorm:"primaryKey" json:"id"`
 	Username     string         `gorm:"uniqueIndex;not null" json:"username"`
 	PasswordHash string         `json:"-"`                          // Hashed password, not exposed in JSON
-	Role         string         `gorm:"default:'user'" json:"role"` // 'admin' or 'user'
+	Role         string         `gorm:"default:'user'" json:"role"` // 'super_admin', 'admin', 'user'
 	Balance      float64        `gorm:"default:0" json:"balance"`   // Credit balance
 	Quota        float64        `gorm:"default:0" json:"quota"`     // Max quota allowed
 	UsedAmount   float64        `gorm:"default:0" json:"used_amount"`

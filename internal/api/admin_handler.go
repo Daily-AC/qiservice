@@ -39,15 +39,25 @@ func CreateUserHandler(c *gin.Context) {
 	// Or just do it here for now as placeholder.
 	pwdHash := req.Password // TODO: Real Hash
 
-	role := "user"
-	if req.Role == "admin" {
-		role = "admin"
+	// Check Requestor Permissions (Assumes Middleware injects "role")
+	requestorRole := c.GetString("role")
+
+	targetRole := db.RoleUser
+	if req.Role == db.RoleAdmin {
+		if requestorRole != db.RoleSuperAdmin {
+			c.JSON(403, gin.H{"error": "Only Super Admin can create Admins"})
+			return
+		}
+		targetRole = db.RoleAdmin
+	} else if req.Role == db.RoleSuperAdmin {
+		c.JSON(403, gin.H{"error": "Cannot create Super Admin via API"})
+		return
 	}
 
 	user := db.User{
 		Username:     req.Username,
 		PasswordHash: pwdHash,
-		Role:         role,
+		Role:         targetRole,
 		Quota:        req.Quota,
 		Balance:      req.Quota, // Initial balance = Quota? Or Balance is remaining?
 		// Let's say Quota is Monthly limit, Balance is Credit?
@@ -99,4 +109,38 @@ func GenerateAPIKeyHandler(c *gin.Context) {
 	}
 
 	c.JSON(200, apiKey)
+}
+
+type UpdateUserRoleRequest struct {
+	UserID uint   `json:"user_id" binding:"required"`
+	Role   string `json:"role" binding:"required"`
+}
+
+func UpdateUserRoleHandler(c *gin.Context) {
+	var req UpdateUserRoleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Only SuperAdmin can modify roles? Or Admin can promote User to Admin?
+	// Let's stick to strict: SuperAdmin can do anything.
+	// Admin can NOT change roles for now.
+	requestorRole := c.GetString("role")
+	if requestorRole != db.RoleSuperAdmin {
+		c.JSON(403, gin.H{"error": "Only Super Admin can update roles"})
+		return
+	}
+
+	if req.Role != db.RoleAdmin && req.Role != db.RoleUser {
+		c.JSON(400, gin.H{"error": "Invalid role"})
+		return
+	}
+
+	if err := db.DB.Model(&db.User{}).Where("id = ?", req.UserID).Update("role", req.Role).Error; err != nil {
+		c.JSON(500, gin.H{"error": "Failed to update user role"})
+		return
+	}
+
+	c.JSON(200, gin.H{"status": "updated"})
 }
