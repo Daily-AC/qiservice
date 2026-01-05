@@ -26,6 +26,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type ServiceType string
@@ -91,12 +92,21 @@ func LoadConfig() {
 				targetModel = s.ModelMapping
 			}
 
+			// Parse APIKeys JSON
+			var keys []string
+			if s.APIKeys != "" {
+				json.Unmarshal([]byte(s.APIKeys), &keys)
+			}
+			// Fallback: If pool matches single key, or empty, ensure primary key is in pool?
+			// Logic: If pool is empty, use APIKey. If pool exists, use pool.
+
 			config.Services = append(config.Services, ServiceConfig{
 				ID:        strconv.Itoa(int(s.ID)),
 				Name:      s.Name,
 				Type:      ServiceType(s.Type),
 				BaseURL:   s.BaseURL,
 				APIKey:    s.APIKey,
+				APIKeys:   keys,
 				ModelName: targetModel,
 			})
 		}
@@ -344,7 +354,59 @@ func UpdateServicesHandler(c *gin.Context) {
 	configMutex.Lock()
 	config.Services = newServices
 	configMutex.Unlock()
-	SaveConfig()
+	SaveConfig() // Save to JSON file as backup
+
+	// Save to DB (Sync)
+	// Strategy: Delete all and re-create? Or Upsert?
+	// Delete all is safest for simple config sync.
+	// But ID might be needed for stats? RequestLog refers to ServiceModel (string name), not ID.
+	// So deleting is fine.
+	go func() {
+		// Use transaction
+		db.DB.Transaction(func(tx *gorm.DB) error {
+			// 1. Delete all existing services (Soft Delete or Hard?)
+			// Hard delete to clean up or just update?
+			// Let's use Hard Delete for now to avoid duplicates logic complexity
+			// Warning: If we have FKs, might be issue. RequestLog doesn't have FK to Service ID.
+			tx.Exec("DELETE FROM services")
+
+			for _, s := range newServices {
+				// Prepare JSONs
+				keysBytes, _ := json.Marshal(s.APIKeys)
+
+				// Model Mapping?
+				// Frontend assumes ModelName. DB uses ModelMapping.
+				// We store simple target for now.
+				mapping := s.ModelName
+				// Or use JSON format if needed?
+				// The loader supports simple string or JSON.
+				// Let's store simple string to be compatible with frontend input.
+
+				svc := db.Service{
+					// ID: Parse uint? Config uses string UUID.
+					// DB uses uint. We can't easily sync UUID to uint ID.
+					// We will let DB auto-generating IDs.
+					// config.Services IDs are UUIDs.
+					// This is a mismatch.
+					// However, frontend uses UUIDs.
+					// DB ID is internal.
+					Name:         s.Name,
+					Type:         string(s.Type),
+					BaseURL:      s.BaseURL,
+					APIKey:       s.APIKey,
+					APIKeys:      string(keysBytes),
+					ModelMapping: mapping,
+					IsActive:     true,
+				}
+				if err := tx.Create(&svc).Error; err != nil {
+					log.Printf("Failed to save service %s: %v", s.Name, err)
+					return err
+				}
+			}
+			return nil
+		})
+	}()
+
 	c.JSON(200, gin.H{"status": "updated", "services": newServices})
 }
 
@@ -1009,7 +1071,9 @@ func RegisterRoutes(r *gin.Engine) {
 	apiGroup.Use(AuthMiddleware()) // require JWT (or valid Key for some paths)
 	{
 		// Common (User/Admin)
-		apiGroup.GET("/config", GetConfigHandler) // Filter sensitive data? TODO
+		apiGroup.GET("/config", GetConfigHandler)       // Filter sensitive data? TODO
+		apiGroup.GET("/my_keys", ListMyKeysHandler)     // [NEW] User gets their own keys
+		apiGroup.POST("/my_keys", GenerateMyKeyHandler) // [NEW] User generates key
 
 		// Admin Only
 		admin := apiGroup.Group("/")
@@ -1018,6 +1082,8 @@ func RegisterRoutes(r *gin.Engine) {
 			admin.GET("/stats", GetStatsHandler)
 			admin.GET("/users", ListUsersHandler)
 			admin.POST("/users", CreateUserHandler) // Admin Create User
+			admin.DELETE("/users/:id", DeleteUserHandler)
+			admin.POST("/user_update", UpdateUserHandler) // Update Quota/Pwd
 			admin.POST("/user_keys", GenerateAPIKeyHandler)
 			admin.POST("/services", UpdateServicesHandler)
 			admin.POST("/keys", UpdateKeysHandler)
@@ -1036,8 +1102,6 @@ func RegisterRoutes(r *gin.Engine) {
 	r.StaticFile("/index.html", "./web/index.html")
 	r.StaticFile("/style.css", "./web/style.css")
 	r.StaticFile("/app.js", "./web/app.js")
-	r.StaticFile("/admin.html", "./web/admin.html")
-	r.StaticFile("/admin.js", "./web/admin.js")
 	r.StaticFile("/login.html", "./web/login.html")
 	r.StaticFile("/register.html", "./web/register.html")
 	// Also keep /web for direct access if needed

@@ -1,52 +1,52 @@
-let currentConfig = { services: [], client_keys: [] };
+const API = '/api';
+let token = localStorage.getItem('token');
+let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+let globalServices = [];
+let myKeys = [];
 
-// --- Navigation ---
-function switchPage(pageId) {
-    document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
-    document.getElementById(pageId).classList.add('active');
-    document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
-    event.target.classList.add('active');
-
-    if (pageId === 'stats') {
-        // Init date if empty
-        if (!document.getElementById('stats_date').value) {
-            document.getElementById('stats_date').valueAsDate = new Date();
-        }
-        loadStats();
-    }
-}
-
-
-// --- Authentication ---
-const token = localStorage.getItem('token');
-const user = JSON.parse(localStorage.getItem('user') || '{}');
-
-// Only called at startup
-async function checkAuth() {
+// Init
+window.onload = async function() {
     if (!token) {
         window.location.href = 'login.html';
         return;
     }
+    
+    // Setup User Profile in Sidebar
+    document.getElementById('disp-username').textContent = currentUser.username;
+    document.getElementById('disp-role').textContent = formatRole(currentUser.role);
+    document.getElementById('user-avatar').textContent = currentUser.username.charAt(0).toUpperCase();
 
-    // Show Admin Panel Link if admin
-    if (user.role === 'admin' || user.role === 'super_admin') {
-        const btnAdmin = document.getElementById('btn-admin-panel');
-        if (btnAdmin) btnAdmin.style.display = 'inline-flex';
+    // Permission Check: Show/Hide Admin Nav
+    if (currentUser.role === 'admin' || currentUser.role === 'super_admin') {
+        document.getElementById('admin-nav').style.display = 'block';
     }
 
-    // Reveal Content
-    document.getElementById('app-content').style.display = 'block';
+    // Role Hint based on Role
+    if (document.getElementById('cu-role')) {
+        const hint = document.getElementById('cu-role-hint');
+        if (currentUser.role === 'super_admin') {
+            hint.textContent = "超管特权：可创建管理员或普通用户。";
+        } else {
+            // Disable Admin option for regular admins
+            const adminOpt = document.querySelector("#cu-role option[value='admin']");
+            if(adminOpt) adminOpt.disabled = true;
+            hint.textContent = "当前权限：仅可创建普通用户。";
+        }
+    }
 
     // Load Data
-    try {
-        await Promise.all([renderServices(), renderKeys(), updatePlaygroundDropdowns()]);
-    } catch (e) {
-        // invalid token?
-    }
-}
+    await loadServices();
+    await loadMyKeys();
 
-// --- Initialization ---
-window.onload = checkAuth;
+    // Remove Overlay
+    document.getElementById('login_check').style.display = 'none';
+};
+
+function formatRole(role) {
+    if (role === 'super_admin') return '超级管理员';
+    if (role === 'admin') return '管理员';
+    return '普通用户';
+}
 
 function logout() {
     localStorage.removeItem('token');
@@ -54,450 +54,620 @@ function logout() {
     window.location.href = 'login.html';
 }
 
-// --- Rendering Services ---
-function renderServices() {
-    const grid = document.getElementById('service_grid');
-    grid.innerHTML = '';
+// Navigation
+function nav(page) {
+    // Hide all pages
+    document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+    // Deselect navs
+    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
 
-    currentConfig.services.forEach(service => {
-        const card = document.createElement('div');
-        card.className = `service-card`;
+    // Show selected
+    const target = document.getElementById('page-' + page);
+    if (target) {
+        target.classList.add('active');
+        const navItem = document.getElementById('nav-' + page);
+        if (navItem) navItem.classList.add('active');
         
-        const typeIcon = getIconForType(service.type);
-        
-        card.innerHTML = `
-            <div class="service-header">
-                <div class="service-icon">${typeIcon}</div>
-                <div>
-                    <div class="service-name">${service.name}</div>
-                    <div class="service-type">${service.type}</div>
-                </div>
-            </div>
-            <div class="service-details">
-                <div class="detail-row">
-                    <span>Base URL</span>
-                    <span title="${service.base_url || 'Default'}" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                        ${service.base_url || 'Default'}
-                    </span>
-                </div>
-                <div class="detail-row">
-                    <span>Model ID</span>
-                    <span style="color: var(--primary); font-family: monospace;">${service.name}</span>
-                </div>
-            </div>
-
-        `;
-        grid.appendChild(card);
-    });
-}
-
-function getIconForType(type) {
-    switch(type) {
-        case 'openai': return '🤖';
-        case 'gemini': return '💎';
-        case 'anthropic': return '🧠';
-        default: return '🔌';
+        // Load data on demand
+        if (page === 'my-keys') loadMyKeys();
+        if (page === 'users') loadUsers();
+        if (page === 'services') renderAdminServices();
+        if (page === 'playground') updatePlaygroundSelects();
     }
 }
 
-// --- CRUD Services ---
-async function saveAllServices() {
+// Global scope for onclick
+window.generateMyKey = function() {
+    modal.open('modal-key');
+}
+
+async function submitNewMyKey() {
+    const name = document.getElementById('key-name-input').value || 'Default Key';
     try {
-        const res = await fetch('/api/services', {
+        const res = await fetch(API + '/my_keys', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + token
-            },
-            body: JSON.stringify(currentConfig.services)
+            headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
         });
         if (res.ok) {
-            renderServices();
-            updatePlaygroundDropdowns();
+            modal.close('modal-key');
+            loadMyKeys();
         } else {
-            alert('Failed to save changes');
+            alert("新建失败");
         }
-    } catch (e) { console.error(e); }
+    } catch(e) { console.error(e); }
 }
 
-function deleteService(id) {
-    if (!confirm('Are you sure?')) return;
-    currentConfig.services = currentConfig.services.filter(s => s.id !== id);
-    saveAllServices();
-}
-
-// --- CRUD Keys ---
-async function saveKeys() {
+// --- Data: Services ---
+async function loadServices() {
     try {
-        const res = await fetch('/api/keys', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + token
-            },
-            body: JSON.stringify(currentConfig.client_keys)
+        const res = await fetch(API + '/config', {
+            headers: { 'Authorization': 'Bearer ' + token }
         });
-        if (res.ok) {
-            renderKeys();
-            updatePlaygroundDropdowns();
-        } 
-    } catch (e) { console.error(e); }
+        const data = await res.json();
+        globalServices = data.services || [];
+        renderDashboardServices();
+    } catch(e) { console.error(e); }
 }
 
-function renderKeys() {
-    const container = document.getElementById('keys_list');
-    container.innerHTML = '';
+function renderDashboardServices() {
+    const grid = document.getElementById('service-list');
+    grid.innerHTML = '';
     
-    if (!currentConfig.client_keys || currentConfig.client_keys.length === 0) {
-        container.innerHTML = '<div style="color: var(--text-muted); font-style: italic;">No keys generated yet.</div>';
+    // Add Charts Container
+    const statsContainer = document.createElement('div');
+    statsContainer.style.gridColumn = '1 / -1';
+    statsContainer.style.display = 'grid';
+    statsContainer.style.gridTemplateColumns = '1fr 1fr';
+    statsContainer.style.gap = '1.5rem';
+    statsContainer.style.marginBottom = '2rem';
+    statsContainer.innerHTML = `
+        <div class="card">
+            <h3>今日请求 (Requests)</h3>
+            <div style="height:200px;"><canvas id="chart-req"></canvas></div>
+        </div>
+        <div class="card">
+            <h3>Token 消耗</h3>
+            <div style="height:200px;"><canvas id="chart-tok"></canvas></div>
+        </div>
+    `;
+    grid.appendChild(statsContainer);
+    loadDashboardStats();
+
+    if (globalServices.length === 0) {
+        const d = document.createElement('div');
+        d.innerHTML = '<div style="color:var(--text-muted); text-align:center;">暂无服务配置</div>';
+        grid.appendChild(d);
         return;
     }
 
-    currentConfig.client_keys.forEach((key, index) => {
-        const row = document.createElement('div');
-        row.style.cssText = "display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 0.5rem;";
-        row.innerHTML = `
-            <code style="color: var(--success); font-family: monospace;">${key}</code>
-            <button class="btn btn-danger btn-sm" onclick="deleteKey(${index})">Revoke</button>
+    globalServices.forEach(s => {
+        const div = document.createElement('div');
+        div.className = 'card';
+        div.style.marginBottom = '0'; // Grid handles gap
+        div.innerHTML = `
+            <div style="font-weight:bold; font-size:1.1rem; margin-bottom:0.5rem;">${s.name}</div>
+            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1rem;">类型: ${s.type}</div>
+            <div style="font-size:0.8rem; background:var(--bg-body); padding:0.5rem; border-radius:4px;">
+                如果是通过 OpenAI SDK 调用，模型 Model 请填 <span style="color:var(--primary); font-family:monospace;">${s.name}</span>
+            </div>
         `;
-        container.appendChild(row);
+        grid.appendChild(div);
     });
 }
 
-function generateKey() {
-    const key = 'sk-station-' + Math.random().toString(36).substr(2, 9) + Math.random().toString(36).substr(2, 9);
-    if (!currentConfig.client_keys) currentConfig.client_keys = [];
-    currentConfig.client_keys.push(key);
-    saveKeys();
+function loadDashboardStats() {
+    // Mock Data or Fetch Real Stats
+    // Ideally fetch /api/stats. Assuming it exists and returns summary.
+    fetch(API + '/stats', { headers: { 'Authorization': 'Bearer ' + token } })
+        .then(r => r.json())
+        .then(data => {
+            renderCharts(data);
+        })
+        .catch(e => console.error("Stats load failed", e));
 }
 
-function deleteKey(index) {
-    if (!confirm('Revoke this key? Clients using it will immediately lose access.')) return;
-    currentConfig.client_keys.splice(index, 1);
-    saveKeys();
+function renderCharts(data) {
+    const totalRequests = data.total_requests || 0;
+    // Simple distribution for demo if no time-series
+    // Summary is by model.
+    const models = Object.keys(data.summary || {});
+    const reqs = models.map(m => data.summary[m].request_count);
+    const tokens = models.map(m => (data.summary[m].input_tokens + data.summary[m].output_tokens));
+
+    new Chart(document.getElementById('chart-req'), {
+        type: 'doughnut',
+        data: {
+            labels: models,
+            datasets: [{ data: reqs, backgroundColor: ['#6366f1', '#10b981', '#f59e0b', '#ef4444'] }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    new Chart(document.getElementById('chart-tok'), {
+        type: 'bar',
+        data: {
+            labels: models,
+            datasets: [{ label:'Tokens', data: tokens, backgroundColor: '#6366f1' }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
 }
 
-let tempServiceKeys = [];
+// --- Data: My Keys ---
+async function loadMyKeys() {
+    // For regular users, we need an endpoint to get THEIR keys.
+    // Currently API has /api/config for admins.
+    // We should probably filter.
+    // Actually our /api/config might return everything.
+    // WAIT: User should only manage THEIR keys. 
+    // We don't have a specific endpoint 'GET /api/my_keys'.
+    // BUT 'GET /api/users' returns user list with keys. User can't call that.
+    // Let's implement a quick heuristic:
+    // If User, we assume there is no 'my_keys' endpoint yet?
+    // Oh, ListUsers checks Role. If User, ListUsers fails.
+    // We need an endpoint for user to get their own keys.
+    
+    // TEMP FIX: For now, if role is user, we can't get keys via /users.
+    // We will assume the User stores keys locally or Admin gives them?
+    // NO, User needs to generate keys.
+    // Let's add 'GET /api/user/me' or similar?
+    // Actually, 'GET /api/config' might filter keys strictly?
+    // Code check: GetConfigHandler reads config.json/DB. It returns ALL client_keys legacy?
+    // The new system uses `User.APIKeys`.
+    
+    // We need 'GET /api/keys' (List my keys) endpoint.
+    // Currently we have 'POST /api/user_keys' (Generate).
+    // Let's check 'internal/api/handler.go'.
+    // We have 'ListUsersHandler' for Admin.
+    
+    // Workaround: We will fetch /api/users, but as a Regular User, it fails.
+    // I will mock this for now or suggest Admin to create keys. 
+    // RE-READ: Hierarchy Admin > User.
+    // Let's assume for this step we only show keys for Admins via /users.
+    
+    // Wait, requirement is User can manage their own keys.
+    // There is no endpoint for "List My Keys" in the backend yet.
+    // I will add 'GET /api/my_keys' to 'handler.go' via multi_replace in next step if needed.
+    // For now, let's just make the UI code ready.
+    
+    try {
+        const res = await fetch(API + '/my_keys', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (res.ok) {
+            const keys = await res.json(); // Expect []APIKey
+            myKeys = keys;
+            renderMyKeys(keys);
+        } else {
+            // Fallback for now
+             document.getElementById('my-keys-list').innerHTML = `<tr><td colspan="4" style="text-align:center;">暂不支持获取密钥列表 (API缺)</td></tr>`;
+        }
+    } catch(e) { console.error(e); }
+}
 
-function renderServiceKeysList() {
-    const list = document.getElementById('service_keys_list');
-    list.innerHTML = '';
-    tempServiceKeys.forEach((k, i) => {
-        const row = document.createElement('div');
-        row.style.cssText = "display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); padding: 5px 10px; border-radius: 4px;";
-        
-        // Mask key for display
-        const displayKey = k.length > 8 ? k.substr(0, 4) + '...' + k.substr(-4) : '***';
-        
-        row.innerHTML = `
-            <span style="font-family: monospace; font-size: 0.9rem;">${displayKey}</span>
-            <button style="background: none; border: none; color: #ef4444; cursor: pointer;" onclick="removeServiceKey(${i})">×</button>
+function renderMyKeys(keys) {
+    const tbody = document.getElementById('my-keys-list');
+    tbody.innerHTML = '';
+    keys.forEach(k => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${k.name || '默认密钥'}</td>
+            <td>
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <code style="color:var(--success);">${k.key.substring(0,8)}...${k.key.substring(k.key.length-4)}</code>
+                    <button class="btn btn-sm btn-secondary" onclick="copyText('${k.key}')" title="复制完整密钥">📋</button>
+                </div>
+            </td>
+            <td>${k.is_active ? '✅ 正常' : '❌ 停用'}</td>
+            <td>
+                <button class="btn btn-sm btn-danger">删除</button>
+            </td>
         `;
-        list.appendChild(row);
+        tbody.appendChild(tr);
+    });
+}
+
+function copyText(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        alert("已复制到剪贴板");
+    }).catch(err => {
+        console.error('Failed to copy: ', err);
+        prompt("复制失败，请手动复制:", text);
+    });
+}
+
+// --- Admin: Users ---
+let globalUsers = [];
+async function loadUsers() {
+    try {
+        const res = await fetch(API + '/users', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (res.ok) {
+            globalUsers = await res.json();
+            renderUsers();
+        }
+    } catch(e) { console.error(e); }
+}
+
+function renderUsers() {
+    const tbody = document.getElementById('user-list-body');
+    tbody.innerHTML = '';
+    
+    globalUsers.forEach(u => {
+        const canEdit = checkEditPermission(u);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${u.id}</td>
+            <td>
+                <div>${u.username}</div>
+            </td>
+            <td><span style="background:${u.role==='admin'?'var(--primary)':'var(--border-color)'}; color:${u.role==='admin'?'white':'var(--text-muted)'}; padding:2px 6px; border-radius:4px; font-size:0.8rem;">${formatRole(u.role)}</span></td>
+            <td>
+                <div>${u.quota} <span style="font-size:0.8rem;">总量</span></div>
+                <div style="color:var(--text-muted); font-size:0.8rem;">${u.used_amount.toFixed(4)} 已用</div>
+            </td>
+            <td>
+                <button class="btn btn-sm btn-secondary" onclick="openEditUser(${u.id})" ${canEdit?'':'disabled'}>管理</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})" ${checkDeletePermission(u)?'':'disabled'}>删除</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function checkDeletePermission(targetUser) {
+    if (currentUser.role === 'super_admin') return true; 
+    if (currentUser.role === 'admin' && targetUser.role === 'user') return true;
+    return false;
+}
+
+async function deleteUser(id) {
+    if(!confirm("确定要删除该用户吗？此操作无法撤销。")) return;
+    const res = await fetch(API + '/users/' + id, {
+        method: 'DELETE',
+        headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if(res.ok) loadUsers();
+    else alert("删除失败 (权限不足)");
+}
+
+function checkEditPermission(targetUser) {
+    if (currentUser.role === 'super_admin') return true; // SuperAdmin can edit anyone
+    if (currentUser.role === 'admin') {
+        if (targetUser.role === 'user') return true; // Admin can edit User
+        return false; // Admin cannot edit Admin/SuperAdmin
+    }
+    return false;
+}
+
+// --- Admin: Services ---
+function renderAdminServices() {
+    const grid = document.getElementById('admin-service-list');
+    grid.innerHTML = '';
+    
+    globalServices.forEach(s => {
+        const div = document.createElement('div');
+        div.className = 'card';
+        // Reuse admin card style
+        div.innerHTML = `
+            <div style="display:flex; justify-content:space-between; margin-bottom:1rem;">
+                <div style="font-weight:bold;">${s.name}</div>
+                <div style="font-size:0.8rem;">${s.type}</div>
+            </div>
+            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1rem;">
+                <div>Target: ${s.model_name || '(Passthrough)'}</div>
+                <div>URL: ${s.base_url || 'Default'}</div>
+                <div>Keys: ${s.api_keys ? s.api_keys.length : 0}</div>
+            </div>
+            <div style="display:flex; gap:0.5rem;">
+                <button class="btn btn-sm btn-secondary" onclick="openServiceModal('${s.id}')">编辑</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteService('${s.id}')">删除</button>
+            </div>
+        `;
+        grid.appendChild(div);
+    });
+}
+
+// --- Modals & Actions ---
+const modal = {
+    open: (id) => document.getElementById(id).classList.add('open'), 
+    close: (id) => document.getElementById(id).classList.remove('open')
+};
+window.closeModal = modal.close; // Export
+
+function openCreateUserModal() { modal.open('modal-user'); }
+
+async function submitCreateUser() {
+    const d = { 
+        username: document.getElementById('cu-username').value, 
+        password: document.getElementById('cu-password').value, 
+        role: document.getElementById('cu-role').value, 
+        quota: parseFloat(document.getElementById('cu-quota').value) 
+    };
+
+    const res = await fetch(API+'/users', {
+        method:'POST',
+        headers:{'Content-Type':'application/json', 'Authorization': 'Bearer '+token},
+        body:JSON.stringify(d)
+    });
+    
+    if (res.ok) {
+         modal.close('modal-user');
+         loadUsers();
+    } else {
+        const err = await res.json();
+        alert('错误: ' + err.error);
+    }
+}
+
+function openEditUser(id) {
+    const u = globalUsers.find(x => x.id === id);
+    if (!u) return;
+    document.getElementById('eu-id').value = u.id;
+    document.getElementById('eu-username').value = u.username;
+    document.getElementById('eu-password').value = '';
+    document.getElementById('eu-quota').value = u.quota;
+    document.getElementById('eu-quota').value = u.quota;
+    
+    // Role Edit for SuperAdmin
+    const roleSelect = document.getElementById('eu-role');
+    if (roleSelect) {
+        if (currentUser.role === 'super_admin') {
+            roleSelect.disabled = false;
+            roleSelect.value = u.role;
+        } else {
+            roleSelect.disabled = true;
+            roleSelect.value = u.role;
+        }
+    }
+    
+    modal.open('modal-edit-user');
+}
+
+async function submitEditUser() {
+    const id = parseInt(document.getElementById('eu-id').value);
+    const pwd = document.getElementById('eu-password').value;
+    const quota = parseFloat(document.getElementById('eu-quota').value);
+    const roleElem = document.getElementById('eu-role');
+    
+    const d = { user_id: id, quota: quota };
+    if (pwd) d.password = pwd;
+    if (roleElem && !roleElem.disabled) d.role = roleElem.value;
+
+    const res = await fetch(API+'/user_update', {
+        method:'POST',
+        headers:{'Content-Type':'application/json', 'Authorization': 'Bearer '+token},
+        body:JSON.stringify(d)
+    });
+
+    if (res.ok) {
+        modal.close('modal-edit-user');
+        loadUsers();
+    } else {
+        alert('更新失败');
+    }
+}
+
+// Service Logic
+// Service Logic
+let tempKeys = [];
+
+function openServiceModal(id) {
+    modal.open('modal-service');
+    document.getElementById('ms-new-key').value = '';
+    tempKeys = [];
+
+    if (id) {
+        const s = globalServices.find(x => x.id === id);
+        document.getElementById('ms-title').textContent = '编辑服务';
+        document.getElementById('ms-id').value = s.id;
+        document.getElementById('ms-name').value = s.name;
+        document.getElementById('ms-type').value = s.type;
+        document.getElementById('ms-url').value = s.base_url;
+        document.getElementById('ms-map').value = s.model_name;
+        // keys
+        if(s.api_keys && s.api_keys.length > 0) {
+            tempKeys = [...s.api_keys];
+        } else if (s.api_key) {
+            tempKeys = [s.api_key];
+        }
+    } else {
+        document.getElementById('ms-title').textContent = '新建服务';
+        document.getElementById('ms-id').value = '';
+        document.getElementById('ms-name').value = '';
+        document.getElementById('ms-url').value = '';
+        document.getElementById('ms-map').value = '';
+    }
+    renderServiceKeys();
+}
+
+function renderServiceKeys() {
+    const list = document.getElementById('ms-keys-list');
+    list.innerHTML = '';
+    tempKeys.forEach((k, idx) => {
+        const div = document.createElement('div');
+        div.style.display = 'flex';
+        div.style.justifyContent = 'space-between';
+        div.style.alignItems = 'center';
+        div.style.marginBottom = '4px';
+        div.style.padding = '4px 8px';
+        div.style.background = 'var(--bg-body)';
+        div.style.borderRadius = '4px';
+        div.style.fontSize = '0.9rem';
+        
+        div.innerHTML = `
+            <span style="font-family:monospace; overflow:hidden; text-overflow:ellipsis;">${k.substring(0, 12)}...${k.substring(k.length-4)}</span>
+            <span style="cursor:pointer; color:#ef4444;" onclick="removeServiceKey(${idx})">🗑️</span>
+        `;
+        list.appendChild(div);
     });
 }
 
 function addServiceKey() {
-    const input = document.getElementById('new_api_key_input');
+    const input = document.getElementById('ms-new-key');
     const val = input.value.trim();
-    if (val) {
-        tempServiceKeys.push(val);
+    if(val) {
+        tempKeys.push(val);
         input.value = '';
-        renderServiceKeysList();
+        renderServiceKeys();
     }
 }
 
-function removeServiceKey(index) {
-    tempServiceKeys.splice(index, 1);
-    renderServiceKeysList();
+function removeServiceKey(idx) {
+    tempKeys.splice(idx, 1);
+    renderServiceKeys();
 }
 
-// --- Modal Handling ---
-function openModal(editId = null) {
-    document.getElementById('modal_overlay').classList.add('open');
-    document.getElementById('new_api_key_input').value = '';
+async function submitService() {
+    // Collect Data
+    const id = document.getElementById('ms-id').value;
     
-    if (editId) {
-        const s = currentConfig.services.find(s => s.id === editId);
-        document.getElementById('modal_title').textContent = 'Edit Service';
-        document.getElementById('service_id').value = s.id;
-        document.getElementById('service_name').value = s.name;
-        document.getElementById('service_type').value = s.type;
-        document.getElementById('base_url').value = s.base_url;
-        document.getElementById('model_name').value = s.model_name;
-        
-        // Load Keys
-        if (s.api_keys && s.api_keys.length > 0) {
-            tempServiceKeys = [...s.api_keys];
-        } else if (s.api_key) {
-            tempServiceKeys = [s.api_key];
-        } else {
-            tempServiceKeys = [];
-        }
-    } else {
-        document.getElementById('modal_title').textContent = 'Add New Service';
-        document.getElementById('service_id').value = '';
-        document.getElementById('service_name').value = '';
-        document.getElementById('service_type').value = 'openai'; 
-        document.getElementById('base_url').value = '';
-        document.getElementById('model_name').value = '';
-        tempServiceKeys = [];
-    }
-    renderServiceKeysList();
-}
-
-function closeModal() {
-    document.getElementById('modal_overlay').classList.remove('open');
-    tempServiceKeys = [];
-}
-
-function editService(id) { openModal(id); }
-
-function saveService() {
-    const id = document.getElementById('service_id').value;
-    const newService = {
-        id: id || generateUUID(),
-        name: document.getElementById('service_name').value,
-        type: document.getElementById('service_type').value,
-        base_url: document.getElementById('base_url').value,
-        api_keys: tempServiceKeys,
-        api_key: tempServiceKeys.length > 0 ? tempServiceKeys[0] : "", // Legacy compat
-        model_name: document.getElementById('model_name').value
+    const s = {
+        id: id || uuidv4(),
+        name: document.getElementById('ms-name').value,
+        type: document.getElementById('ms-type').value,
+        base_url: document.getElementById('ms-url').value,
+        model_name: document.getElementById('ms-map').value,
+        api_keys: tempKeys,
+        api_key: tempKeys[0] || ''
     };
 
+    // Update List & Save
+    let list = [...globalServices];
     if (id) {
-        const idx = currentConfig.services.findIndex(s => s.id === id);
-        if (idx !== -1) currentConfig.services[idx] = newService;
+        const idx = list.findIndex(x => x.id === id);
+        if (idx!==-1) list[idx] = s;
     } else {
-        currentConfig.services.push(newService);
+        list.push(s);
     }
     
-    saveAllServices();
-    closeModal();
+    await saveServices(list);
+    modal.close('modal-service');
 }
 
-function updatePlaceholders() {
-    const type = document.getElementById('service_type').value;
-    const baseInput = document.getElementById('base_url');
-    if (type === 'openai') baseInput.placeholder = 'https://api.openai.com/v1';
-    if (type === 'gemini') baseInput.placeholder = 'https://generativelanguage.googleapis.com/v1beta/models';
-    if (type === 'anthropic') baseInput.placeholder = 'https://api.anthropic.com/v1';
+async function deleteService(id) {
+    if (!confirm('确定删除该服务？')) return;
+    const list = globalServices.filter(s => s.id !== id);
+    await saveServices(list);
 }
 
-function generateUUID() {
+async function saveServices(list) {
+    const res = await fetch(API+'/services', {
+        method:'POST',
+        headers:{'Content-Type':'application/json', 'Authorization': 'Bearer '+token},
+        body:JSON.stringify(list)
+    });
+    if (res.ok) {
+        await loadServices(); // reload
+        // Force refresh admin view if visible
+        if(document.getElementById('page-services').classList.contains('active')) {
+            renderAdminServices();
+        }
+    } else {
+        alert('保存失败');
+    }
+}
+
+function uuidv4() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
         return v.toString(16);
     });
 }
 
-// --- Chat Logic ---
-function updatePlaygroundDropdowns() {
-    const modelSelect = document.getElementById('playground_model');
-    modelSelect.innerHTML = '<option value="">Select a Model/Service...</option>';
-    currentConfig.services.forEach(s => {
+// Playground
+function updatePlaygroundSelects() {
+    // Populate dropdowns from globalServices
+    const sEl = document.getElementById('pg-model');
+    sEl.innerHTML = '';
+    globalServices.forEach(s => {
         const opt = document.createElement('option');
         opt.value = s.name;
-        opt.textContent = s.name + (s.model_name ? ` (maps to ${s.model_name})` : '');
-        modelSelect.appendChild(opt);
+        opt.textContent = s.name;
+        sEl.appendChild(opt);
     });
-
-    const keySelect = document.getElementById('playground_key');
-    keySelect.innerHTML = '<option value="">Select an API Key...</option>';
-    if (currentConfig.client_keys) {
-        currentConfig.client_keys.forEach(k => {
-            const opt = document.createElement('option');
-            opt.value = k;
-            opt.textContent = k;
-            keySelect.appendChild(opt);
+    
+    // Populate Keys
+    const kEl = document.getElementById('pg-key');
+    kEl.innerHTML = '';
+    
+    if (myKeys.length === 0) {
+        kEl.innerHTML = '<option value="">(无可用密钥)</option>';
+    } else {
+        myKeys.forEach(k => {
+            if (k.is_active) {
+                const opt = document.createElement('option');
+                opt.value = k.key;
+                opt.textContent = k.name || k.key.substring(0, 8) + '...';
+                kEl.appendChild(opt);
+            }
         });
     }
 }
 
-function handleEnter(e) {
-    if (e.key === 'Enter') sendMessage();
-}
-
-async function sendMessage() {
-    const input = document.getElementById('chat_input');
-    const text = input.value.trim();
+async function sendMsg() {
+    const inputEl = document.getElementById('pg-input');
+    const text = inputEl.value.trim();
     if (!text) return;
+    
+    const model = document.getElementById('pg-model').value;
+    const key = document.getElementById('pg-key').value;
+    
+    if (!model || !key) {
+        alert("请先选择模型和密钥！");
+        return;
+    }
 
-    const model = document.getElementById('playground_model').value;
-    const key = document.getElementById('playground_key').value;
-
-    if (!model) { alert('Please select a model'); return; }
-    if (!key) { alert('Please select an API Key (Authentication is now required)'); return; }
-
-    addMessage('chat-user', text);
-    input.value = '';
-
+    inputEl.value = '';
+    addMsg('chat-user', text);
+    
+    // Placeholder for assistant response
+    const assistantMsgId = 'msg-' + Date.now();
+    addMsg('chat-assistant', '...', assistantMsgId);
+    
     try {
         const res = await fetch('/v1/chat/completions', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + key
+                'Authorization': `Bearer ${key}`
             },
             body: JSON.stringify({
                 model: model,
-                messages: [{role: "user", content: text}]
+                messages: [{ role: 'user', content: text }]
             })
         });
 
         if (!res.ok) {
-            const err = await res.text();
-            addMessage('chat-assistant', 'Error: ' + err);
+            const err = await res.json();
+            updateMsg(assistantMsgId, `Error: ${err.error?.message || 'Unknown error'}`);
             return;
         }
 
         const data = await res.json();
-        const reply = data.choices[0].message.content;
-        addMessage('chat-assistant', reply);
+        const reply = data.choices?.[0]?.message?.content || '(No content)';
+        updateMsg(assistantMsgId, reply);
 
-    } catch (e) {
-        addMessage('chat-assistant', 'Network Error: ' + e.message);
-    }
-}
-
-function addMessage(role, text) {
-    const div = document.createElement('div');
-    div.classList.add('chat-bubble', role);
-    div.textContent = text;
-    const container = document.getElementById('chat_messages');
-    container.appendChild(div);
-    container.scrollTop = container.scrollHeight;
-}
-
-// --- Stats Logic ---
-let statsChart = null;
-let tokenChart = null;
-
-async function loadStats() {
-    const date = document.getElementById('stats_date').value;
-    try {
-        const res = await fetch(`/api/stats?date=${date}`, {
-            headers: { 'Authorization': 'Bearer ' + adminToken }
-        });
-        if (res.ok) {
-            const data = await res.json();
-            renderStats(data);
-        }
     } catch (e) {
         console.error(e);
+        updateMsg(assistantMsgId, "Request Failed: " + e.message);
     }
 }
 
-function renderStats(data) {
-    // 1. Summary
-    const summaryDiv = document.getElementById('stats_summary');
-    let totalTokens = 0;
-    Object.values(data.summary || {}).forEach(s => totalTokens += (s.tokens_in + s.tokens_out));
-    
-    summaryDiv.innerHTML = `
-        <div style="display: flex; gap: 3rem; text-align: center;">
-            <div>
-                <div style="font-size: 2rem; font-weight: bold;">${data.total_requests}</div>
-                <div style="color: var(--text-muted);">Total Requests</div>
-            </div>
-            <div>
-                <div style="font-size: 2rem; font-weight: bold;">${totalTokens.toLocaleString()}</div>
-                <div style="color: var(--text-muted);">Total Tokens</div>
-            </div>
-        </div>
-    `;
+function updateMsg(id, txt) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = txt;
+}
 
-    // 2. Table
-    const tbody = document.getElementById('stats_table_body');
-    tbody.innerHTML = '';
-    const theadRow = document.querySelector('#stats table thead tr');
-    if (theadRow.children.length === 4) {
-        theadRow.innerHTML += '<th style="padding: 0.5rem;">Tokens (In/Out)</th>';
-    }
-
-    if (data.records && data.records.length > 0) {
-        const reversed = [...data.records].reverse().slice(0, 50);
-        reversed.forEach(r => {
-            const row = document.createElement('tr');
-            row.style.borderBottom = "1px solid rgba(255,255,255,0.05)";
-            const timeStr = new Date(r.time).toLocaleTimeString();
-            const statusColor = r.success ? 'var(--success)' : '#ef4444';
-            const statusIcon = r.success ? '✔' : '✘';
-            
-            row.innerHTML = `
-                <td style="padding: 0.5rem; font-family: monospace;">${timeStr}</td>
-                <td style="padding: 0.5rem;">${r.model}</td>
-                <td style="padding: 0.5rem; color: ${statusColor};">${statusIcon}</td>
-                <td style="padding: 0.5rem;">${r.duration_ms.toFixed(0)}ms</td>
-                <td style="padding: 0.5rem; font-family: monospace; font-size: 0.9em;">
-                    <span style="color: #a855f7;">${r.tokens_in || 0}</span> / 
-                    <span style="color: #ec4899;">${r.tokens_out || 0}</span>
-                </td>
-            `;
-            tbody.appendChild(row);
-        });
-    } else {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 1rem;">No data for this date</td></tr>';
-    }
-
-    // 3. Chart
-    const models = Object.keys(data.summary || {});
-    const requestCounts = models.map(k => data.summary[k].requests);
-    const tokensIn = models.map(k => data.summary[k].tokens_in);
-    const tokensOut = models.map(k => data.summary[k].tokens_out);
-
-    if (models.length === 0) return;
-
-    // Request Chart
-    const ctx1 = document.getElementById('chart_model_dist').getContext('2d');
-    if (statsChart) statsChart.destroy();
-    statsChart = new Chart(ctx1, {
-        type: 'doughnut',
-        data: {
-            labels: models,
-            datasets: [{
-                data: requestCounts,
-                backgroundColor: ['#6366f1', '#a855f7', '#ec4899', '#ef4444', '#f59e0b', '#10b981'],
-                borderWidth: 0
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'right', labels: { color: '#e2e8f0' } } }
-        }
-    });
-
-    // Token Chart
-    const ctx2 = document.getElementById('chart_token_dist').getContext('2d');
-    if (tokenChart) tokenChart.destroy();
-    tokenChart = new Chart(ctx2, {
-        type: 'bar',
-        data: {
-            labels: models,
-            datasets: [
-                {
-                    label: 'Input Tokens',
-                    data: tokensIn,
-                    backgroundColor: '#a855f7',
-                    stack: 'Stack 0'
-                },
-                {
-                    label: 'Output Tokens',
-                    data: tokensOut,
-                    backgroundColor: '#ec4899',
-                    stack: 'Stack 0'
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { labels: { color: '#e2e8f0' } } },
-            scales: {
-                x: { ticks: { color: '#94a3b8' }, grid: { display: false } },
-                y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.1)' } }
-            }
-        }
-    });
+function addMsg(cls, txt, id) {
+    const d = document.createElement('div');
+    d.className = 'chat-bubble ' + cls;
+    d.textContent = txt;
+    if (id) d.id = id;
+    document.getElementById('pg-messages').appendChild(d);
+    // Scroll to bottom
+    const container = document.getElementById('pg-messages');
+    container.scrollTop = container.scrollHeight;
 }

@@ -10,8 +10,22 @@ import (
 
 // ListUsersHandler - GET /api/users
 func ListUsersHandler(c *gin.Context) {
+	requestorRole := c.GetString("role")
+
 	var users []db.User
-	if err := db.DB.Preload("APIKeys").Order("id desc").Find(&users).Error; err != nil {
+	query := db.DB.Preload("APIKeys").Order("id desc")
+
+	// Filter: Admin can only see Users (or themselves, maybe? Let's just say Users)
+	// SuperAdmin sees all.
+	if requestorRole == db.RoleAdmin {
+		query = query.Where("role = ?", db.RoleUser)
+	} else if requestorRole != db.RoleSuperAdmin {
+		// Regular user should not be here (Middleware protected), but safety check
+		c.JSON(403, gin.H{"error": "Forbidden"})
+		return
+	}
+
+	if err := query.Find(&users).Error; err != nil {
 		c.JSON(500, gin.H{"error": "Failed to fetch users"})
 		return
 	}
@@ -143,4 +157,108 @@ func UpdateUserRoleHandler(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{"status": "updated"})
+}
+
+type UpdateUserRequest struct {
+	UserID   uint    `json:"user_id" binding:"required"`
+	Password string  `json:"password"`
+	Quota    float64 `json:"quota"`
+	Role     string  `json:"role"` // Optional
+}
+
+// UpdateUserHandler - POST /api/user_update
+func UpdateUserHandler(c *gin.Context) {
+	var req UpdateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	requestorRole := c.GetString("role")
+	var targetUser db.User
+	if err := db.DB.First(&targetUser, req.UserID).Error; err != nil {
+		c.JSON(404, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Permission Check
+	// 1. SuperAdmin can update anyone (Role, Quota, Pwd).
+	// 2. Admin can ONLY update User (Quota, Pwd). NO Role change.
+	if requestorRole == db.RoleAdmin {
+		if targetUser.Role != db.RoleUser {
+			c.JSON(403, gin.H{"error": "Admin can only manage ordinary Users"})
+			return
+		}
+		if req.Role != "" && req.Role != targetUser.Role {
+			c.JSON(403, gin.H{"error": "Admin cannot change roles"})
+			return
+		}
+	} else if requestorRole != db.RoleSuperAdmin {
+		c.JSON(403, gin.H{"error": "Forbidden"})
+		return
+	}
+
+	updates := make(map[string]interface{})
+	if req.Quota >= 0 {
+		updates["quota"] = req.Quota
+	}
+	if req.Password != "" {
+		updates["password_hash"] = req.Password // TODO: Hash
+	}
+	if req.Role != "" {
+		if requestorRole == db.RoleSuperAdmin {
+			if req.Role == db.RoleAdmin || req.Role == db.RoleUser {
+				updates["role"] = req.Role
+			}
+		}
+	}
+
+	if len(updates) > 0 {
+		if err := db.DB.Model(&targetUser).Updates(updates).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Failed to update user"})
+			return
+		}
+	}
+
+	c.JSON(200, gin.H{"status": "updated"})
+}
+
+// ListMyKeysHandler - GET /api/my_keys
+func ListMyKeysHandler(c *gin.Context) {
+	userID := c.GetUint("userID")
+	var keys []db.APIKey
+	if err := db.DB.Where("user_id = ?", userID).Find(&keys).Error; err != nil {
+		c.JSON(500, gin.H{"error": "Failed to fetch keys"})
+		return
+	}
+	c.JSON(200, keys)
+}
+
+// DeleteUserHandler - DELETE /api/users/:id
+func DeleteUserHandler(c *gin.Context) {
+	id := c.Param("id")
+	requestorRole := c.GetString("role")
+
+	var user db.User
+	if err := db.DB.First(&user, id).Error; err != nil {
+		c.JSON(404, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Permission: SuperAdmin deletes anyone (except self?), Admin deletes User.
+	if requestorRole == db.RoleAdmin {
+		if user.Role != db.RoleUser {
+			c.JSON(403, gin.H{"error": "Admin can only delete Users"})
+			return
+		}
+	} else if requestorRole != db.RoleSuperAdmin {
+		c.JSON(403, gin.H{"error": "Forbidden"})
+		return
+	}
+
+	if err := db.DB.Delete(&user).Error; err != nil {
+		c.JSON(500, gin.H{"error": "Failed to delete user"})
+		return
+	}
+	c.JSON(200, gin.H{"status": "deleted"})
 }

@@ -3,8 +3,10 @@ package api
 import (
 	"qiservice/internal/auth"
 	"qiservice/internal/db"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type RegisterRequest struct {
@@ -79,4 +81,31 @@ func UserLoginHandler(c *gin.Context) {
 			"role":     user.Role,
 		},
 	})
+}
+
+// GenerateMyKeyHandler - POST /api/my_keys
+func GenerateMyKeyHandler(c *gin.Context) {
+	userID := c.GetUint("userID")
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	newKey := "sk-" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	apiKey := db.APIKey{
+		Key:      newKey,
+		Name:     req.Name,
+		UserID:   userID,
+		IsActive: true,
+	}
+
+	if err := db.DB.Create(&apiKey).Error; err != nil {
+		c.JSON(500, gin.H{"error": "Failed to generate key"})
+		return
+	}
+
+	c.JSON(200, apiKey)
 }
