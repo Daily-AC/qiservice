@@ -34,6 +34,9 @@ async function checkAuth() {
         if (btnAdmin) btnAdmin.style.display = 'inline-flex';
     }
 
+    // Reveal Content
+    document.getElementById('app-content').style.display = 'block';
+
     // Load Data
     try {
         await Promise.all([renderServices(), renderKeys(), updatePlaygroundDropdowns()]);
