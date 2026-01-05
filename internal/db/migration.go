@@ -8,14 +8,16 @@ import (
 
 // MigrateConfig loads legacy config.json and seeds the database
 func MigrateConfig() {
-	var count int64
-	DB.Model(&User{}).Count(&count)
-	if count > 0 {
-		log.Println("ℹ️ Database already seeded. Skipping migration.")
+	var userCount, serviceCount int64
+	DB.Model(&User{}).Count(&userCount)
+	DB.Model(&Service{}).Count(&serviceCount)
+
+	if userCount > 0 && serviceCount > 0 {
+		log.Println("ℹ️ Database (Users & Services) seeded. Skipping config migration.")
 		return
 	}
 
-	log.Println("🔄 Starting migration from config.json...")
+	log.Println("🔄 Checking config.json for migration...")
 
 	// Load legacy config manually (avoid cyclic import if possible, but here we can reuse existing struct definition if exported,
 	// BUT config package might not be loaded yet or we want to avoid side effects.
@@ -53,27 +55,36 @@ func MigrateConfig() {
 	}
 
 	// 1. Create Admin User
-	adminUser := User{
-		Username:     "admin",
-		Role:         RoleSuperAdmin,
-		Quota:        9999999,                             // Unlimited
-		PasswordHash: hashPassword(jsonCfg.AdminPassword), // Need a hash function
+	var existAdmin User
+	if err := DB.Where("username = ?", "admin").First(&existAdmin).Error; err != nil {
+		adminUser := User{
+			Username:     "admin",
+			Role:         RoleSuperAdmin,
+			Quota:        9999999,
+			PasswordHash: hashPassword(jsonCfg.AdminPassword),
+		}
+		if adminUser.PasswordHash == "" {
+			adminUser.PasswordHash = "admin"
+		}
+		DB.Create(&adminUser)
+		log.Printf("✅ Migrated Admin User")
+	} else {
+		log.Println("ℹ️ Admin user exists, skipping creation.")
 	}
-	if adminUser.PasswordHash == "" {
-		adminUser.PasswordHash = "admin" // Default insecure fallback if hash fails (simplified)
-	}
-	DB.Create(&adminUser)
-	log.Printf("✅ Migrated Admin User (ID: %d)", adminUser.ID)
 
 	// 2. Migrate Client Keys
 	// We assign all legacy client keys to a default "Legacy User" or just the Admin?
 	// Let's create a "Legacy User" for these keys.
-	legacyUser := User{
-		Username: "legacy_user",
-		Role:     "user",
-		Quota:    1000,
+	// 2. Migrate Client Keys
+	var legacyUser User
+	if err := DB.Where("username = ?", "legacy_user").First(&legacyUser).Error; err != nil {
+		legacyUser = User{
+			Username: "legacy_user",
+			Role:     "user",
+			Quota:    1000,
+		}
+		DB.Create(&legacyUser)
 	}
-	DB.Create(&legacyUser)
 
 	for _, key := range jsonCfg.ClientKeys {
 		if key == "" {
