@@ -13,6 +13,8 @@ func MigrateConfig() {
 	DB.Model(&Service{}).Count(&serviceCount)
 
 	if userCount > 0 && serviceCount > 0 {
+		// [FIX] Ensure 'admin' is always SuperAdmin (Self-Healing)
+		DB.Model(&User{}).Where("username = ?", "admin").Update("role", RoleSuperAdmin)
 		log.Println("ℹ️ Database (Users & Services) seeded. Skipping config migration.")
 		return
 	}
@@ -160,7 +162,7 @@ func createDefaultAdmin() {
 	// ... logic to create default admin if no config ...
 	DB.Create(&User{
 		Username:     "admin",
-		Role:         "admin",
+		Role:         RoleSuperAdmin,
 		PasswordHash: "admin", // Need handling
 	})
 }
