@@ -15,6 +15,11 @@ func MigrateConfig() {
 	if userCount > 0 && serviceCount > 0 {
 		// [FIX] Ensure 'admin' is always SuperAdmin (Self-Healing)
 		DB.Model(&User{}).Where("username = ?", "admin").Update("role", RoleSuperAdmin)
+
+		// [FIX] Cleanup Legacy Soft-Deleted Users (GC)
+		// To allow recreating same username if it was soft-deleted before we switched to Hard Delete.
+		DB.Unscoped().Where("deleted_at IS NOT NULL").Delete(&User{})
+
 		log.Println("ℹ️ Database (Users & Services) seeded. Skipping config migration.")
 		return
 	}
