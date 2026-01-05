@@ -82,8 +82,8 @@ func (m *Manager) Record(model string, duration time.Duration, success bool, tok
 }
 
 func (m *Manager) GetDaily(date string) *DailyStats {
-	// Parse Date Range
-	start, _ := time.Parse("2006-01-02", date)
+	// Parse Date Range (Use Local Time to match Record)
+	start, _ := time.ParseInLocation("2006-01-02", date, time.Local)
 	end := start.Add(24 * time.Hour)
 
 	// Optimize: Use aggregation query instead of fetching all rows

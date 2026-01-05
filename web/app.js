@@ -73,6 +73,12 @@ function nav(page) {
         if (page === 'users') loadUsers();
         if (page === 'services') renderAdminServices();
         if (page === 'playground') updatePlaygroundSelects();
+        
+        // Refresh Dashboard on view
+        if (page === 'dashboard') {
+             loadDashboardStats();
+             loadMyProfile();
+        }
     }
 }
 

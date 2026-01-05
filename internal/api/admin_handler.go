@@ -256,7 +256,9 @@ func DeleteUserHandler(c *gin.Context) {
 		return
 	}
 
-	if err := db.DB.Delete(&user).Error; err != nil {
+	// Use Unscoped to verify hard delete (or handle soft delete properly)
+	// For this user management, we prefer Hard Delete to allow re-creating same username.
+	if err := db.DB.Unscoped().Delete(&user).Error; err != nil {
 		c.JSON(500, gin.H{"error": "Failed to delete user"})
 		return
 	}
