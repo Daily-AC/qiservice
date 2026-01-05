@@ -56,7 +56,7 @@ func Init(dataDir string) {
 	GlobalManager = &Manager{}
 }
 
-func (m *Manager) Record(model string, duration time.Duration, success bool, tokensIn, tokensOut int) {
+func (m *Manager) Record(model string, duration time.Duration, success bool, tokensIn, tokensOut int, userID uint) {
 	// Async insert to not block
 	go func() {
 		status := 200
@@ -69,11 +69,9 @@ func (m *Manager) Record(model string, duration time.Duration, success bool, tok
 			Status:           status,
 			PromptTokens:     tokensIn,
 			CompletionTokens: tokensOut,
+			UserID:           userID,
 			CreatedAt:        time.Now(),
 		}
-		// We don't have UserID passed here easily yet.
-		// Context has it, but Record is called from handler's defer.
-		// For now, we log anonymous or 0. Enhancing later if needed.
 
 		if err := db.DB.Create(&logEntry).Error; err != nil {
 			log.Printf("[Stats] Failed to record: %v", err)
@@ -81,7 +79,7 @@ func (m *Manager) Record(model string, duration time.Duration, success bool, tok
 	}()
 }
 
-func (m *Manager) GetDaily(date string) *DailyStats {
+func (m *Manager) GetDaily(date string, userID uint) *DailyStats {
 	// Parse Date Range (Use Local Time to match Record)
 	start, _ := time.ParseInLocation("2006-01-02", date, time.Local)
 	end := start.Add(24 * time.Hour)
@@ -97,11 +95,16 @@ func (m *Manager) GetDaily(date string) *DailyStats {
 	}
 
 	var results []Result
-	db.DB.Model(&db.RequestLog{}).
+	query := db.DB.Model(&db.RequestLog{}).
 		Select("service_model, count(*) as count, sum(prompt_tokens) as sum_prompt, sum(completion_tokens) as sum_completion").
-		Where("created_at >= ? AND created_at < ?", start, end).
-		Group("service_model").
-		Scan(&results)
+		Where("created_at >= ? AND created_at < ?", start, end)
+
+	// User Scoping: Aggregator View (Admin) vs Personal View (User)
+	if userID > 0 {
+		query = query.Where("user_id = ?", userID)
+	}
+
+	query.Group("service_model").Scan(&results)
 
 	stats := &DailyStats{
 		Date:    date,
