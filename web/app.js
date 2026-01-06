@@ -329,12 +329,44 @@ function renderMyKeys(keys) {
 }
 
 function copyText(text) {
-    navigator.clipboard.writeText(text).then(() => {
-        alert("已复制到剪贴板");
-    }).catch(err => {
-        console.error('Failed to copy: ', err);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            alert("已复制到剪贴板");
+        }).catch(err => {
+            console.error('Failed to copy: ', err);
+            fallbackCopyText(text);
+        });
+    } else {
+        fallbackCopyText(text);
+    }
+}
+
+function fallbackCopyText(text) {
+    var textArea = document.createElement("textarea");
+    textArea.value = text;
+    
+    // Avoid scrolling to bottom
+    textArea.style.top = "0";
+    textArea.style.left = "0";
+    textArea.style.position = "fixed";
+
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+
+    try {
+        var successful = document.execCommand('copy');
+        if (successful) {
+            alert("已复制到剪贴板");
+        } else {
+            prompt("复制失败，请手动复制:", text);
+        }
+    } catch (err) {
+        console.error('Fallback: Oops, unable to copy', err);
         prompt("复制失败，请手动复制:", text);
-    });
+    }
+
+    document.body.removeChild(textArea);
 }
 
 async function deleteMyKey(id) {
